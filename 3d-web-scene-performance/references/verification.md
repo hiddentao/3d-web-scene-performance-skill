@@ -1,87 +1,93 @@
 # Verification
 
-How to measure, what to test without a GPU, and the browser limits that will bite.
+How to measure performance, what to test without a GPU, and the browser limits a
+3D scene runs into.
 
+#### Measuring
 
-#### Measuring honestly
-
-**Every number carries its conditions.** A frame rate without a viewport, a device
-pixel ratio, a CPU throttle setting and a scene position is not a measurement. Write
-them down beside the number, every time:
+**Record the conditions with every number.** A frame rate is only a measurement
+when it comes with the viewport, the device pixel ratio, the CPU throttle setting
+and the camera position in the scene. Write them next to the number every time:
 
 ```
 118 fps, 1920x1071, DPR 1.5, no CPU throttle, mid-scene camera, desktop (M-series)
 ```
 
-**Isolate the subject.** Two copies of a scene rendering at once - a preview
-harness and the real page - halve the frame rate and tell you nothing. Check what
-is actually running before recording anything.
+**Measure one scene at a time.** If two copies of the scene render at once (for
+example a preview harness and the real page), the frame rate halves and the
+number tells you nothing. Check what is running before you record anything.
 
-**One machine is one data point.** The reference scene reached 120 fps on a
-high-end laptop and had never been measured on a physical phone. Say which it was.
+**One machine is one data point.** The hezo.ai scene reached 120 fps on a
+high-end laptop and was never measured on a physical phone. Always say which
+device a number comes from.
 
-#### The startup measurement protocol
+#### Startup measurement protocol
 
-1. Production build, served as production serves it. A development build measures
-   the development server.
-2. Chrome DevTools, **Network throttling with a real preset** (Slow 4G), cache
-   disabled. A server-side per-response delay is not the same network model: it
-   gets the latency wrong and the bandwidth sharing completely wrong.
-3. Record CPU throttle explicitly, even when it is 1x.
-4. Capture, from navigation start:
-   - first contentful paint,
-   - when the renderer bundle's request starts and finishes,
-   - first complete 3D slice on screen,
-   - each build milestone,
-   - full readiness,
-   - request count and total bytes,
-   - **main-thread long tasks** (over 50 ms) with their attribution,
-   - input responsiveness during the build: click a control, record the delay.
-5. Repeat cold and warm. A warm visit exercises the generation cache, which is a
+1. Use the production build, served the way production serves it. A development
+   build measures the development server.
+2. In Chrome DevTools, turn on network throttling with a real preset (Slow 4G)
+   and disable the cache. A delay added to each response on the server is a
+   different network model. It gets the latency wrong, and it gets bandwidth
+   sharing completely wrong.
+3. Record the CPU throttle setting, even when it is 1x.
+4. Capture these times and values, from navigation start:
+   - first contentful paint
+   - when the request for the renderer bundle starts and finishes
+   - the first complete 3D slice on screen (the first part of the scene that
+     looks finished)
+   - each build milestone (each named stage of the build)
+   - full readiness
+   - request count and total bytes
+   - main-thread long tasks (over 50 ms), with their attribution
+   - input response during the build: click a control and record the delay
+5. Repeat for a cold visit and a warm visit. A warm visit reads from the
+   generation cache (the stored output of scene generation), which is a
    different code path.
-6. Compare against the same protocol, not against yesterday's memory.
+6. Compare against runs of the same protocol, not against numbers you remember.
 
-A worked before/after in this format is in [Budget arithmetic](../SKILL.md#budget-arithmetic).
+[Budget arithmetic](../SKILL.md#budget-arithmetic) has a worked before-and-after
+example in this format.
 
-##### Prove input responsiveness, do not assume it
+##### Measure input response directly
 
-"No long tasks" and "the UI is responsive" are different claims. Interact with a
-real control during the build and record the response time. In the reference
-implementation, measured in Chrome on a desktop machine under the Slow 4G preset
-with no CPU throttle, two page controls responded in 4-7 ms while distant geometry
-was still generating. Before the renderer moved off the main thread, the same page
-under the same conditions showed main-thread stalls up to 744 ms.
+"No long tasks" and "the UI is responsive" are different claims. Use a real
+control during the build and record how long it takes to respond. The hezo.ai
+scene was measured in Chrome on a desktop machine, with the Slow 4G preset and no
+CPU throttle. Two page controls responded in 4-7 ms while distant geometry was
+still generating. Before the renderer moved off the main thread, the same page
+under the same conditions had main-thread stalls of up to 744 ms.
 
 #### What a frame counter cannot tell you
 
 | Question | Instrument |
 | --- | --- |
-| Is the GPU keeping up? | Completion latency, not frame count. See [The frame budget](frame-budget.md#the-frame-budget) |
-| Is the final image correct? | Screenshots, in both themes, after a resize |
+| Is the GPU keeping up? | Completion latency, not frame count. See [the frame budget](frame-budget.md#the-frame-budget) |
+| Is the final image correct? | Screenshots in both themes, after a resize |
 | Did a shader fail? | The console, in the production build, on every backend |
-| How much work per frame? | Draw calls and triangles from the renderer's own counters |
-| Is the scene leaking? | Repeated navigation in and out, watching memory |
-| Does the degraded tier work? | Force it and look. It is never exercised on your machine |
+| How much work does each frame do? | Draw calls and triangles from the renderer's own counters |
+| Is the scene leaking? | Navigate in and out many times and watch memory |
+| Does the degraded tier work? | Force that tier and look at it. Your own machine never runs it |
 
-**Raw-source shader tests cannot prove production rendering works.** Confirm a
-visible final frame in a real browser, with clean shader and pipeline logs, after
-a resize, in both themes, at phone width.
+**Shader tests on raw source do not prove that production rendering works.**
+Confirm a visible final frame in a real browser, with clean shader and pipeline
+logs, after a resize, in both themes and at phone width.
 
-**Stress the quality ladder deliberately.** Force the renderer slow, watch it step
-down through every tier, then let it recover and watch it step back up. That test
-found a persistent black frame on shadow-map resize that normal use never
-triggered - the frame count and console were both clean while the canvas was
-black.
+**Stress the quality ladder on purpose.** The quality ladder is the ordered list
+of quality levels that the renderer steps through as the frame rate changes.
+Force the renderer to run slowly and watch it step down through every level. Then
+let it recover and watch it step back up. This test found a black frame that
+stayed on screen after a shadow-map resize, which normal use never triggered. The
+frame count and the console were both clean while the canvas was black.
 
 #### Tests that need no GPU
 
-More of a 3D scene is testable off-GPU than people expect. These patterns each
-caught a real regression.
+You can test more of a 3D scene without a GPU than you might expect. Each pattern
+below caught a real regression.
 
-##### Structural comparison of a node graph
+##### Compare the structure of a node graph
 
-A shader graph built with a node API is assembled on the CPU. Only rendering needs
-hardware. Walk it and compare a signature:
+A shader graph built with a node API is assembled on the CPU. Only rendering
+needs a GPU. Walk the graph and compare signatures:
 
 ```
 signature(node) {
@@ -93,25 +99,24 @@ signature(node) {
 assert(signature(buildComposedForm()) === signature(buildOriginalExpression()))
 ```
 
-**Write the control test first.** Build the *same* form twice and assert the
-signatures match. Without that, a green run proves nothing.
+**Write the control test first.** Build the same form twice and assert that the
+signatures match. Without this control, a passing test proves nothing.
 
 ```
 assert(signature(build()) === signature(build()))     // the control
 ```
 
-This matters because the obvious primitive does not work: a cache key that carries
-per-instance identity yields a different value for the same expression built
-twice, and therefore reports every pair of graphs as different. Check what your
-engine's key actually contains before trusting it.
+The control matters because the obvious tool can fail. A cache key that includes
+per-instance identity gives a different value for the same expression built
+twice, so it reports every pair of graphs as different. Check what your engine's
+key contains before you rely on it.
 
-Keep the graph in a module that takes no renderer. That is what makes it reachable
-from a test at all.
+Keep the graph in a module that does not need a renderer, so a test can reach it.
 
-##### Compile shader sources against the real backend builder
+##### Compile shaders with the real backend builder
 
-Instantiate the engine's node builder for each backend and compile. No canvas, no
-device:
+Create the engine's node builder for each backend and compile. You need no canvas
+and no device:
 
 ```
 for (backend of ["webgpu", "webgl"]) {
@@ -121,63 +126,75 @@ for (backend of ["webgpu", "webgl"]) {
 }
 ```
 
-This reproduced a real WebGPU failure: the engine generated a
+This test reproduced a real WebGPU failure. The engine generated a
 `textureDimensions(t, level)` call for a multisampled depth texture, which WGSL
-forbids. It also proved the WebGL path was byte-for-byte unchanged by the fix.
+does not allow. The same test proved that the fix left the WebGL path
+byte-for-byte unchanged.
 
 ##### Tier ladder monotonicity
 
-See [Device tiers, LOD and cost curves](device-tiers.md#device-tiers-lod-and-cost-curves). Cheap, and it catches the commonest tier bug.
+The device table holds one row of settings for each class of device, and each
+setting in it is a knob. Assert that every knob changes in one direction only as
+you move down the tiers. See [device tiers](device-tiers.md#device-tiers-lod-and-cost-curves).
+The test is cheap, and it catches the most common tier bug.
 
-##### Milestone reachability by source scan
+##### Check milestones by scanning the source
 
-Scan the builder sources for the call that reports each milestone and assert it is
-forced or published. See [Startup: time to first render](startup.md#startup-time-to-first-render).
+Scan the builder source for the call that reports each milestone. Assert that
+each call is forced or published, the two kinds of checkpoint that the scheduler
+never skips. See [startup](startup.md#startup-time-to-first-render).
 
-##### Build-output audit
+##### Check the build output
 
-Parse the emitted bundle and assert its shape - one asset, no dynamic imports, no
-`importScripts`, not duplicated into a page bundle. **Parse it, do not text-match**:
-shader source contains strings that look like anything you grep for.
+Parse the emitted bundle and assert its shape: one asset, no dynamic imports, no
+`importScripts`, and no copy of it inside a page bundle. **Parse the bundle, do
+not text-match it.** Shader source contains strings that look like anything you
+grep for.
 
 ##### Cache exactness
 
-`structuredClone` the record and deep-compare. Assert every field is a number or a
-typed array. Assert record strides. See [Persistence: caching, retention and survival](persistence.md#persistence-caching-retention-and-survival).
+Pass the record through `structuredClone` and deep-compare the result. Assert
+that every field is a number or a typed array. Assert the record strides (how
+many values each item takes up in an array). See
+[persistence](persistence.md#persistence-caching-retention-and-survival).
 
-##### Geometry parity across an optimisation
+##### Same geometry with and without an optimisation
 
-Run the build twice - once with the optimisation, once with it forced off - and
-compare final geometry, draw order and per-instance data. Then assert the reused
-objects' GPU resources were never touched again. This is how a geometry-reuse
-optimisation is proved safe.
+Run the build twice, once with the optimisation and once with it forced off.
+Compare the final geometry, draw order and per-instance data. Then assert that
+the GPU resources of reused objects were never touched again. This is how you
+prove that a geometry-reuse optimisation is safe.
 
 ##### Cancellation at every stage
 
-Abort at each publish label in turn. Assert everything created and everything
-retained is disposed exactly once and the scene ends with zero children.
+A publish label names a point where the build shows a finished stage on screen.
+Abort the build at each publish label in turn. Assert that everything created and
+everything retained is disposed exactly once, and that the scene ends with zero
+children.
 
-##### Population sweeps
+##### Count what generation produces
 
-Generation is usually pure arithmetic. Run it under a plain JS runtime and count
-the output before choosing a knob value. Seconds, not minutes.
+Generation is usually pure arithmetic. Run it in a plain JS runtime and count the
+output before you choose a knob value. This takes seconds.
 
-#### Testing after the build transforms your code
+#### Test the production build
 
-A shader that compiles from source can fail in production because the bundler
-transformed the class that built it.
+A shader that compiles from source can still fail in production, because the
+bundler transformed the class that builds it.
 
-Two real failures from the reference scene, both invisible to source-level tests:
+The hezo.ai scene had two failures of this kind, and source-level tests caught
+neither:
 
-- **Loose class transforms break native subclassing.** A bundler compiling
-  `class MyNode extends Node` in loose mode produced a constructor that the
+- Loose class transforms break native subclassing. A bundler compiled
+  `class MyNode extends Node` in loose mode and produced a constructor that the
   engine's native base class rejected. The fix was to construct the base type
-  directly and attach behaviour, rather than subclass it.
-- **Parameter destructuring in a shader function** was transformed into a form the
-  node system read differently, silently changing what the shader computed. Named
-  layout inputs had to use object destructuring, not array or index access.
+  directly and attach behaviour to it, instead of subclassing it.
+- Parameter destructuring in a shader function was transformed into a form that
+  the node system read differently. This silently changed what the shader
+  computed. Named layout inputs had to use object destructuring, not array or
+  index access.
 
-So: **run the file through the real production build pipeline inside the test.**
+**Run the file through the real production build pipeline inside the test.**
 
 ```
 config = loadRealBabelConfig()                   // the project's own preset and browserslist
@@ -188,51 +205,41 @@ assert(evaluate(compiled).buildsWithoutThrowing())
 assert(throws(() => evaluate(transform(read("brokenSubclassVariant.js"), config))))
 ```
 
-That last line is the part people skip. A test that cannot fail is not a test.
+Do not skip the last assertion. A test that cannot fail is not a test.
 
 #### Browser and platform limits
 
 | Limit | Value | Consequence |
 | --- | --- | --- |
-| Nested `setTimeout` clamp | Exactly 4 ms once nesting exceeds 5 levels (HTML spec) | Chained `setTimeout(0)` yields cost most of a second over a build. Use a message channel or `scheduler.yield()` |
+| Nested `setTimeout` clamp | Exactly 4 ms once nesting exceeds 5 levels (HTML spec) | Yielding with chained `setTimeout(0)` calls costs most of a second over a build. Use a message channel or `scheduler.yield()` |
 | WebGL2 uniform block size | 16 KiB guaranteed; engines often assume 64 KiB | An instanced mesh with a few hundred to ~1000 instances can exceed what the device allows. Pad the instance buffer past the engine's threshold to force its instanced-attribute path |
-| `navigator.deviceMemory` | Chromium-only, and clamped to 8 on Chrome for Android | Useless for telling a phone from a desktop. Only useful for spotting a genuinely low-memory desktop |
-| `navigator.hardwareConcurrency` | Commonly 8 on both | Same |
-| `navigator.connection` | Chromium-only (not Safari, not Firefox) | A slow-connection shortcut must be a shortcut, never the only mechanism |
+| `navigator.deviceMemory` | Chromium-only, and clamped to 8 on Chrome for Android | Cannot tell a phone from a desktop. Useful only to spot a desktop with little memory |
+| `navigator.hardwareConcurrency` | Commonly 8 on phones and desktops | Cannot tell a phone from a desktop either |
+| `navigator.connection` | Chromium-only (not Safari, not Firefox) | Use it only as an extra shortcut for slow connections, never as the only mechanism |
 | `localStorage` | Throws in some private modes | Wrap every access |
-| IndexedDB | Can be blocked, full, or never open | Time-box the open; treat a null cache as normal |
+| IndexedDB | Can be blocked, full, or never open | Put a time limit on the open; treat a null cache as normal |
 | `transferControlToOffscreen` | One way; fails if a context was already obtained | Never probe the context first. Keep a fresh canvas for the one fallback attempt |
-| `devicePixelRatio` | Commonly 3 on phones | Clamp per device row. A phone at ratio 3 draws nine times the pixels of ratio 1 |
-| Mobile tab memory | A few hundred MB before the OS kills the tab | Kills run no callback and send no event. See the crash sentinel in [Persistence: caching, retention and survival](persistence.md#persistence-caching-retention-and-survival) |
-| bfcache disqualifiers | `no-store` on the document; historically an `unload` listener, which Chrome is removing as it deprecates `unload` - verify current status | Use `pagehide`; use `max-age=0, must-revalidate` |
-| WebGPU device loss | Can happen at any time | Handle `onDeviceLost` and fall back rather than freezing |
-| Shadow attachment resize | Produced persistent black frames on a WebGPU backend | Fix shadow map dimensions after initialisation |
-| iOS / mobile WebKit iframe sizing | Sizes a frame to its content and ignores inner scrolling; desktop Safari differs | If the scene is framed, set `width: 1px; min-width: 100%` and scroll the wrapper |
-| `@media (scripting: enabled)` | Matches only when scripts run | The correct gate for any rule that hides content while loading |
+| `devicePixelRatio` | Commonly 3 on phones | Clamp it in each device row. A phone at ratio 3 draws nine times the pixels of ratio 1 |
+| Mobile tab memory | A few hundred MB before the OS kills the tab | A kill runs no callback and sends no event. See the crash sentinel (a stored marker that shows, on the next load, that the last build never finished) in [persistence](persistence.md#persistence-caching-retention-and-survival) |
+| bfcache disqualifiers | `no-store` on the document; in the past also an `unload` listener (Chrome is removing this as it deprecates `unload`, so check the current status) | Use `pagehide`; use `max-age=0, must-revalidate` |
+| WebGPU device loss | Can happen at any time | Handle `onDeviceLost` and fall back, so the scene does not freeze |
+| Shadow attachment resize | Produced persistent black frames on a WebGPU backend | Keep shadow map dimensions fixed after initialisation |
+| iOS / mobile WebKit iframe sizing | Sizes a frame to its content and ignores inner scrolling; desktop Safari behaves differently | If the scene is in a frame, set `width: 1px; min-width: 100%` and scroll the wrapper |
+| `@media (scripting: enabled)` | Matches only when scripts run | Put any rule that hides content during loading inside this query |
 
-#### Keep the checks running, and verify your own sources
+#### Keep checks running and confirm the facts
 
-Three failure modes that have nothing to do with rendering, and each one silently
-invalidates the work above.
+**Run every check automatically.** When you write a check, wire it into something
+that runs it: a CI job, a pre-push hook or a required status check. The hook or
+job must run the checks itself; asking a person to confirm they ran them does not
+count. A check that nothing runs stops catching regressions.
 
-**An unautomated check rots.** Every audit in this section is worth writing and
-worthless unrun. The project these examples come from has a careful renderer test
-suite, a bundle audit and a cache-exactness test - and no CI job, no pre-push
-hook and no required status check runs any of them. Its commit hook verifies that
-a human *typed a sentence claiming* they ran the checks. Wire each check into
-something that executes it at the moment you write it, or you are maintaining
-documentation, not verification.
+**Check the remote for what is deployed.** In a long-lived clone, `origin/main`
+is whatever was last fetched, and a stale copy can make a shipped feature look
+unmerged. Take any claim about what is deployed from `git ls-remote` or the
+forge's API.
 
-**A remote-tracking ref is a snapshot, not the remote.** `origin/main` in a
-long-lived clone is whatever was last fetched. Any claim about what is deployed
-comes from `git ls-remote` or the forge's API. This is not hypothetical: during
-the audit that produced this section, a stale `origin/main` led to a confident,
-wrong statement that a shipped feature was unmerged.
-
-**A delegated finding is a claim until you reproduce it.** If you fan work out to
-other agents or colleagues, spot-check the specifics before you act on them. In
-the audit behind this document, one reviewer of five produced a quotation that
-did not exist in the file it was attributed to, and another asserted a branch
-state that a single command disproved. Both reports were otherwise accurate,
-which is exactly what makes the habit necessary - the useful ones and the wrong
-ones arrive in the same format.
+**Reproduce findings from other agents or colleagues before you act on them.**
+Correct and incorrect findings arrive in the same format, so check the specifics
+yourself. Confirm that a quotation exists in the file it is attributed to, and run
+the command that shows a claimed branch state.

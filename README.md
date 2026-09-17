@@ -132,11 +132,11 @@ For Aider, add `read: AGENTS.md` to `.aider.conf.yml`. Continue reads rules from
 ## How it is laid out
 
 `3d-web-scene-performance/SKILL.md` holds the nine rules, the decision tables and
-the frame time calculations in 412 lines. The seven files in `references/` each
+the frame time calculations in 426 lines. The seven files in `references/` each
 cover one topic in depth.
 
 An agent reads `SKILL.md` every time it uses the skill, so the spec asks for it
-to stay under 500 lines. The references add about 2,500 lines, and the agent
+to stay under 500 lines. The references add about 2,600 lines, and the agent
 reads each one only when a task needs it.
 
 ## Contributing

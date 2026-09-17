@@ -1,16 +1,17 @@
 # The frame budget
 
-Holding 60 fps, measuring it honestly, and spending the budget where it shows.
+How to hold 60 fps, measure the frame rate correctly, and spend the frame budget
+(the time each frame can take) where it shows.
 
 
-#### The metric
+#### What to measure
 
-`requestAnimationFrame` fires at display rate whether or not the GPU has finished
-anything. On a modern async backend the driver queues work and returns
-immediately, so a RAF-based counter reports 60 fps on a device that is drawing 22
-and accumulating latency.
+`requestAnimationFrame` fires at the display rate, even when the GPU has not
+finished any work. On a modern async backend, the driver queues work and returns
+at once. A counter based on RAF can then report 60 fps on a device that draws 22
+frames a second while its latency builds up.
 
-Track two rates and adapt on the lower:
+Track two rates and adapt to the lower one:
 
 ```
 onSubmit:
@@ -30,39 +31,39 @@ everySamplingWindow:                                    # ~1800 ms, and only wit
   rate         = min(rafFps, completedFps)              # the honest number
 ```
 
-The exponential moving average on GPU latency matters as much as the rate. A
-device can complete 60 frames a second while each one takes 40 ms from submission
-to completion - that is a queue, and it is felt as input lag long before the frame
-counter moves.
+The exponential moving average of GPU latency matters as much as the rate. A
+device can complete 60 frames a second while each frame takes 40 ms from
+submission to completion. That is a queue. Users feel it as input lag long before
+the frame counter changes.
 
-If your engine has no completion promise, approximate it with a GPU timestamp
-query, or with the resolution of a fence. Do not fall back to counting callbacks.
+If your engine has no completion promise, approximate one with a GPU timestamp
+query or with the resolution of a fence. Do not fall back to counting callbacks.
 
-##### Aggregated pass timings are not per-frame timings
+##### Summed pass timings are not frame times
 
-GPU timestamp APIs often report totals per pass across a window. Dividing that by
-frames is not frame time, and comparing it to 16.7 ms is meaningless. In the scene
-this came from, an early "22 ms GPU frame" reading turned out to be summed pass
-totals; the real submission-to-completion latency was about 8 ms.
+GPU timestamp APIs often report a total for each pass over a time window. That
+total divided by the frame count is not a frame time, so do not compare it with
+16.7 ms. In the hezo.ai scene, an early reading of a "22 ms GPU frame" was the sum
+of the pass totals. The real latency from submission to completion was about 8 ms.
 
 #### Backpressure
 
-Two bounds, both required:
+Apply both of these limits.
 
-**Frames in flight.** Never submit while two are unfinished.
+**Frames in flight.** Do not submit a frame while two frames are still unfinished.
 
 ```
 if (inFlight >= 2) return          // skip this frame's submission entirely
 ```
 
-Note what still runs above that line: the camera is placed every frame, because
+The code above that check still runs. The camera is placed every frame, because
 DOM overlays and picking need current matrices. Only the lighting update and the
 submission are skipped.
 
-**Messages in flight**, when the renderer lives in a worker. Allow one outstanding
-update. Coalesce newer state over older, and **accumulate the skipped time delta
-rather than dropping it**, or every animation clock in the scene runs slow under
-load:
+**Messages in flight.** When the renderer runs in a worker, allow one outstanding
+update message. Merge newer state over older state. Add the time delta of each
+skipped update to the next update instead of dropping it, or every animation clock
+in the scene runs slow under load:
 
 ```
 update(state):
@@ -82,19 +83,21 @@ onFrameAck(seq):                    # worker posts this after each render
   flush()
 ```
 
-**Reject stale input.** Pointer events carry a timestamp; the worker drops any
-older than about 350 ms. A backlogged queue must not act on where the finger was
-half a second ago.
+**Reject stale input.** Pointer events carry a timestamp. The worker drops any
+event older than about 350 ms. A backed-up queue must not act on where the finger
+was half a second ago.
 
 #### The adaptive ladder
 
-Keep the authored scene intact. Spend the frame budget on buffer resolution and
-sample counts, in a fixed order, one step per sampling window.
+The adaptive ladder is a fixed sequence of quality steps. When the frame rate is
+too low, the renderer moves down one step per sampling window. When the rate
+recovers, it moves back up. Keep the authored scene intact: the steps change only
+buffer resolution and sample counts, in a fixed order.
 
-**Derive the thresholds from the display, not from 60.** Many phones, tablets
-and monitors run at 90, 120 or 144 Hz. Hard-coding 58 there downgrades a device
-that is running perfectly, because it is comfortably above 58 and nowhere near
-its own target. Measure the refresh rate once and scale:
+**Derive the thresholds from the display, not from 60.** Many phones, tablets and
+monitors run at 90, 120 or 144 Hz. A hard-coded 58 compares such a device with the
+wrong target: it can run comfortably above 58 and still be nowhere near its own
+target. Measure the refresh rate once and scale the thresholds:
 
 ```
 # measure: the shortest stable interval RAF delivers over ~20 idle frames
@@ -103,9 +106,9 @@ DOWN      = refreshHz * 0.967                        # 58 at 60 Hz
 UP        = refreshHz * 0.975                        # 58.5 at 60 Hz
 ```
 
-The two thresholds bracket the target asymmetrically rather than sitting either
-side of a midpoint, because a display cannot report more than its own refresh
-rate - there is no headroom above to measure, only below.
+Both thresholds sit just below the target, not on either side of it. A display
+cannot report more than its own refresh rate, so there is no headroom to measure
+above the target, only below it.
 
 ```
 if (rate < DOWN) {
@@ -125,7 +128,9 @@ else if (goodWindows >= 6) {          # recovery, exact reverse order
 if (changed) { renderer.setPixelRatio(ratio); goodWindows = 0; settleUntil = now + 2500 }
 ```
 
-`setQuality(level)` indexes the device row rather than branching on device again:
+`setQuality(level)` reads its values from the device row (the settings for this
+type of device in the device settings table). It does not check the device type
+again:
 
 ```
 setQuality(level):
@@ -134,57 +139,58 @@ setQuality(level):
   reflection.scale     = tier.reflection[level]
 ```
 
-Resolution is spent before effect quality, and it is spent twice - down to 1x,
-then down to 0.85x - before the second effect step. That order comes from what a
-reader notices: a slightly softer frame reads as fine; losing contact shading
-reads as flat.
+The ladder lowers resolution before effect quality. It lowers resolution twice,
+first to 1x and then to 0.85x, before the second effect step. The order follows
+what a reader notices. A slightly softer frame still looks fine. A frame without
+contact shading looks flat.
 
-Also clamp the top:
+Also clamp the upper end:
 
 ```
 maxRatio = clamp(devicePixelRatio, tier.minPixelRatio, tier.maxPixelRatio)
 ```
 
-Only a desktop row should supersample above its own device ratio. `minPixelRatio:
-1.5` on the full row keeps fine edges crisp on a 1x display; on a phone at ratio 3
-it would be suicide.
+Only a desktop row should supersample above the device's own pixel ratio.
+`minPixelRatio: 1.5` on the full (desktop) row keeps fine edges sharp on a 1x
+display. On a phone at ratio 3, the same setting would cost far too much.
 
-#### Hysteresis, and why each constant exists
+#### Hysteresis constants
 
 | Constant | Value used | Why |
 | --- | --- | --- |
-| Sampling window | 1800 ms, min 10 frames | Short enough to react, long enough that one hitch is not a trend |
-| Downgrade threshold | `rate < refreshHz * 0.967` (58 at 60 Hz) | Just under target, so a healthy device never trips |
-| Upgrade threshold | `rate >= refreshHz * 0.975` (58.5 at 60 Hz) | A display cannot report above its own refresh rate, so the pair brackets the target from below rather than symmetrically |
-| GPU latency gate on recovery | `< 24 ms` | A device can hit the rate while queueing; do not restore detail into a queue |
-| Recovery cooldown | 20 s after any downgrade | Stops a borderline device oscillating every two windows |
-| Sustained good windows | 6 (about 11 s) | One good window is a camera pointing at the sky |
-| Settle after any change | 2.5 s | The change itself costs a frame or two; do not measure that |
-| Startup grace | 5 s, re-armed when the build finishes | Never adapt to load-time hitching |
+| Sampling window | 1800 ms, min 10 frames | Short enough to react. Long enough that one hitch does not count as a trend |
+| Downgrade threshold | `rate < refreshHz * 0.967` (58 at 60 Hz) | Just under the target, so a healthy device never triggers it |
+| Upgrade threshold | `rate >= refreshHz * 0.975` (58.5 at 60 Hz) | A display cannot report above its own refresh rate, so both thresholds sit below the target |
+| GPU latency gate on recovery | `< 24 ms` | A device can reach the rate while frames queue up. Do not add detail back while there is a queue |
+| Recovery cooldown | 20 s after any downgrade | Stops a borderline device from switching quality every two windows |
+| Sustained good windows | 6 (about 11 s) | One good window can come from a camera pointing at the sky |
+| Settle after any change | 2.5 s | The change itself costs a frame or two. Do not measure those frames |
+| Startup grace | 5 s, re-armed when the build finishes | Never adapt to hitches during loading |
 
-The asymmetry is the point: **drop fast, recover slowly**. A reader forgives a
-slightly softer frame. Nobody forgives a scene that pulses between two quality
-levels every ten seconds.
+The constants follow one rule: **drop fast, recover slowly**. Readers accept a
+slightly softer frame. They do not accept a scene that switches between two
+quality levels every ten seconds.
 
 #### What must never be resized live
 
-**Shadow map dimensions.** Reallocating the shadow attachment while rendering
-produced persistent black output on a WebGPU backend - no console error, normal
-frame counts, a black canvas. Size it once from the device row and never touch it.
-Render-target scale for AO, reflections and the canvas itself all passed the same
-stress test; only the shadow attachment failed.
+**Shadow map dimensions.** On a WebGPU backend, reallocating the shadow attachment
+while rendering made the canvas stay black. There was no console error, and frame
+counts were normal. Set the size once from the device row and do not change it.
+Render-target scale for AO, for reflections and for the canvas itself passed the
+same stress test. Only the shadow attachment failed.
 
-More generally, live-resizing anything with a depth attachment bound across
-passes is a place to be suspicious. Test it deliberately by forcing the ladder up
-and down under load and watching for a frame that never recovers.
+Treat any live resize of a depth attachment that is bound across passes as
+suspect. Test it on purpose: force the ladder up and down under load, and watch
+for a frame that never recovers.
 
-**Anything that changes a pipeline.** Swapping a material, toggling a define, or
-changing a vertex layout at runtime is a compile, and compiles happen on a thread
-you care about.
+**Anything that changes a pipeline.** At runtime, swapping a material, toggling a
+define or changing a vertex layout causes a compile. Compiles run on a thread you
+care about.
 
 #### Renderer construction flags
 
-A few choices made once, at construction, outweigh a lot of per-frame tuning.
+A few flags set once, when you construct the renderer, matter more than a lot of
+per-frame tuning.
 
 ```
 renderer = new Renderer({
@@ -195,20 +201,21 @@ renderer = new Renderer({
 })
 ```
 
-**`powerPreference: "high-performance"`** is the one people miss. On a laptop
-with both an integrated and a discrete GPU, the default hint can land you on the
-integrated one, which may be several times slower for the same scene. The cost is
-battery, so it is the right request for a scene that is the page's subject and
-the wrong one for a small decorative widget. Some engines expose this on their own
-constructor; with raw WebGPU it is on the adapter request.
+**`powerPreference: "high-performance"`** is the flag people often miss. On a
+laptop with an integrated and a discrete GPU, the default hint can select the
+integrated GPU. That GPU may be several times slower for the same scene. The cost
+is battery use. Request it when the scene is the page's subject. Do not request
+it for a small decorative widget. Some engines expose this flag on their own
+constructor. With raw WebGPU, it is part of the adapter request.
 
-**`alpha: false`** where you do not need to composite page content through the
-canvas. An opaque surface lets the compositor skip a blend over the whole canvas
-area every frame.
+**`alpha: false`** suits a canvas that does not need page content composited
+through it. An opaque surface lets the compositor skip a blend over the whole
+canvas area every frame.
 
-### Pass economics
+### Pass costs
 
-Count traversals before triangles.
+Count scene traversals (each full render of the scene's objects in a frame) before
+you count triangles.
 
 | Configuration | Scene traversals per frame |
 | --- | --- |
@@ -218,51 +225,51 @@ Count traversals before triangles.
 | Plus post chain | 3, then full-screen resolves through its own targets |
 | Plus AO with a depth-normal prepass | 4 |
 
-A 30% triangle cut on a four-traversal scene is worth less than removing one
-traversal. That is why the phone row in [Device tiers, LOD and cost curves](device-tiers.md#device-tiers-lod-and-cost-curves) declines four things at
-once rather than halving geometry.
+On a scene with four traversals, removing one traversal saves more than a 30%
+triangle cut. For that reason the phone row in
+[device tiers](device-tiers.md#device-tiers-lod-and-cost-curves) turns off four
+things at once instead of halving geometry.
 
-Cheap wins in this class:
+Cheap savings of this kind:
 
 - Hide a reflection's surface when it leaves the frustum.
-- Cast shadows from far fewer objects than you draw. Cap the shadow-caster set
-  explicitly; do not let it follow the visible set.
+- Cast shadows from far fewer objects than you draw. Set an explicit cap on the
+  shadow casters. Do not let the set of casters follow the set of visible objects.
 - **Anti-alias procedural detail analytically instead of supersampling it.** Fine
-  procedural patterns - anything built from noise or summed waves - shimmer when
-  their wavelength drops below a pixel, and the usual reflex is to raise the
-  resolution or add a post AA pass, both of which cost a whole frame's fill. It
-  is far cheaper to suppress the detail in the shader as it approaches pixel
-  size, using the derivative of the pattern's own argument:
+  procedural patterns, such as anything built from noise or summed waves, shimmer
+  when their wavelength drops below a pixel. The usual fix is to raise the
+  resolution or add a post AA pass. Both cost a whole frame's fill. It is far
+  cheaper to fade the detail out in the shader as it approaches pixel size. Use
+  the derivative of the pattern's own argument:
 
   ```
   // fwidth(angle) is roughly how much `angle` changes across one pixel
   contribution = sin(angle) * amplitude / (1 + pow(fwidth(angle), 2))
   ```
 
-  Each octave fades itself out exactly where it would start to alias, at the cost
-  of two derivative instructions. Apply it per octave, not to the sum.
+  Each octave fades out exactly where it would start to alias. The cost is two
+  derivative instructions. Apply it to each octave, not to the sum.
 
-- Fade contact shading out with distance rather than computing it everywhere.
-  Applying tiny AO contacts at long range both costs fill and looks wrong - it
-  stamps fine geometry onto translucent geometry behind it:
+- Fade contact shading out with distance. Tiny AO contacts at long range cost fill
+  and look wrong, because they stamp fine geometry onto the translucent geometry
+  behind it:
 
   ```
   contactWeight = (1 - smoothstep(65, 140, -viewZ)) * 0.32
   colour = colour * mix(1, occlusion, contactWeight)
   ```
 
-#### Pipeline build economics
+#### Pipeline build cost
 
-JavaScript-side shader assembly was the single largest startup cost in the scene
-this skill came from - larger than geometry generation, larger than texture
-painting.
+In the hezo.ai scene, shader assembly in JavaScript was the largest startup cost.
+It cost more than geometry generation and more than texture painting.
 
-The mechanism, in Three r180 and engines that behave like it: **every instanced
-mesh's uuid is part of the render cache key**, so each instanced mesh assembles
-its own node shaders in every pass - main, shadow, depth-normal, preview. Plain
-meshes that share a material and attribute layout share one build.
+The cause, in Three r180 and engines that behave like it: every instanced mesh's
+uuid is part of the render cache key. So each instanced mesh assembles its own node
+shaders in every pass (main, shadow, depth-normal, preview). Plain meshes that
+share a material and attribute layout share one build.
 
-So:
+So group placements by geometry and material:
 
 ```
 place(geometry, material, transform):
@@ -274,26 +281,28 @@ place(geometry, material, transform):
   batch.tints.push(perPieceVariation())
 ```
 
-At publish time, split each batch:
+The scene is built in stages. A stage is one part of the scene, and it publishes
+(joins the visible scene) when it is complete. At publish time, split each batch:
 
-- **Baked** - under the vertex limit and static. Flatten every instance's
-  positions and normals through its matrix into one buffer per material, and
-  write the per-piece tint into a `color` vertex attribute. Enable `vertexColors`
-  on the material. One shader build now covers thousands of pieces, and they still
-  look individually varied.
-- **Instanced** - over the vertex limit, or moving independently.
+- **Baked**: under the vertex limit and static. Transform every instance's
+  positions and normals by its matrix and flatten them into one buffer per
+  material. Write the per-piece tint into a `color` vertex attribute, and enable
+  `vertexColors` on the material. One shader build then covers thousands of
+  pieces, and each piece still looks different.
+- **Instanced**: over the vertex limit, or moving independently.
 
-Thousands of 14-vertex repeated pieces collapse into one plain mesh. A handful of
-heavy detailed props and the moving parts stay instanced. The CPU cost is the
-flattening at publish time, which is bounded, cooperative and happens once.
+Thousands of repeated 14-vertex pieces become one plain mesh. A few heavy,
+detailed props and the moving parts stay instanced. The CPU cost is the
+flattening at publish time. It is bounded, it yields to other work, and it happens
+once.
 
-Before adding instanced batches split by zone, stage or variant, ask whether a
+Before you split instanced batches by zone, stage or variant, check whether a
 shared plain mesh or fewer batches would draw the same thing.
 
 ##### Precompile before you show
 
-Compile the pipelines a stage needs *before* the frame that needs them, so no
-frame is the one that stalls on a compile:
+Compile the pipelines a stage needs before the frame that uses them, so that no
+frame stalls on a compile:
 
 ```
 await renderer.compileAsync(scene, camera)
@@ -303,25 +312,25 @@ await renderer.waitForGPU()
 
 ##### Keep the light count stable
 
-Adding a light mid-build invalidates shader variants for every material that reads
-lighting. Allocate the lights the finished scene will have at the start, at zero
-intensity, and raise them as their stage publishes.
+Adding a light during the build invalidates the shader variants of every material
+that reads lighting. At the start, create all the lights the finished scene will
+have, at zero intensity. Raise each light when its stage publishes.
 
 #### Per-frame allocation
 
-- No object creation in the frame loop. Preallocate vectors, matrices, quaternions
-  and colours at build time and reuse them.
-- No full instance scans. If you need per-instance state per frame, keep it in a
-  typed array and touch only the indices that changed.
-- Do not recompute bounding volumes per frame. See "culling that survives GPU-side
-  deformation" in [Device tiers, LOD and cost curves](device-tiers.md#device-tiers-lod-and-cost-curves).
-- Sort once, not every frame. If a sort is genuinely needed during startup, yield
-  through it (see [Startup: time to first render](startup.md#startup-time-to-first-render)).
+- Do not create objects in the frame loop. Preallocate vectors, matrices,
+  quaternions and colours at build time, and reuse them.
+- Do not scan all instances. If you need per-instance state each frame, keep it in
+  a typed array and update only the indices that changed.
+- Do not recompute bounding volumes each frame. See "culling that survives
+  GPU-side deformation" in [device tiers](device-tiers.md#device-tiers-lod-and-cost-curves).
+- Sort once, not every frame. If startup really needs a sort, yield during it (see
+  [startup](startup.md#startup-time-to-first-render)).
 - **Look for an algebraic shortcut before paying for a general operation.** A
-  vertex stage that needs to move a world-space vector into an instance's local
-  space appears to need that instance's inverse matrix - which means computing and
-  uploading one per instance, or inverting per vertex. But an instance transform
-  built only from translation, rotation and scale has orthogonal basis columns, so
+  vertex stage that moves a world-space vector into an instance's local space
+  seems to need the instance's inverse matrix. That means computing and uploading
+  one inverse per instance, or inverting per vertex. But an instance transform
+  built only from translation, rotation and scale has orthogonal basis columns. So
   the inverse of its linear part is three projections:
 
   ```
@@ -331,12 +340,13 @@ intensity, and raise them as their stage publishes.
                dot(offset, z) / max(dot(z, z), 1e-12))
   ```
 
-  Nine multiplies instead of a matrix inverse, and no extra per-instance upload.
-  The guard on the divisor matters: a zero-scaled axis would otherwise produce a
-  NaN that propagates through the whole vertex.
+  That is nine multiplies instead of a matrix inverse, with no extra per-instance
+  upload. Keep the guard on the divisor. Without it, an axis scaled to zero
+  produces a NaN that spreads through the whole vertex.
 
-- Gate expensive per-frame branches behind a single uniform test in the shader, so
-  an idle feature costs one comparison rather than a world-space transform chain:
+- Put expensive per-frame branches behind a single uniform test in the shader. An
+  idle feature then costs one comparison instead of a chain of world-space
+  transforms:
 
   ```
   If(activeCount.greaterThan(0), () => { ...the whole displacement field... })
@@ -344,51 +354,53 @@ intensity, and raise them as their stage publishes.
 
 #### Visibility and timing reset
 
-Pause on two independent signals, because they mean different things:
+Pause on either of two separate signals. They mean different things:
 
-- `document.visibilitychange` - the tab is backgrounded.
-- An `IntersectionObserver` on the scene container - the reader scrolled past it.
+- `document.visibilitychange`: the tab is in the background.
+- An `IntersectionObserver` on the scene container: the reader scrolled past the
+  scene.
 
 ```
 sync = () => (document.hidden || !onScreen) ? pause() : resume()
 ```
 
-On pause, **cancel the pending animation frame synchronously**. A hidden tab can
-suspend a scheduled callback without ever invoking it, and a stale handle makes
-`resume()` believe a frame is already queued.
+On pause, cancel the pending animation frame synchronously. A hidden tab can hold
+a scheduled callback and never call it. A stale handle then makes `resume()`
+believe a frame is already queued.
 
 On resume:
 
-1. Re-baseline the delta clock (`previous = now()`), so the first frame after a
-   ten-minute pause does not carry a ten-minute delta into the physics.
-2. Reset the sampling counters and bump a generation number, so a completion
-   callback that resolves after the pause cannot contaminate fresh statistics.
-3. Reset transient interaction state - active deformations, hover cooldowns - and
-   the integration remainder of any physics. Keep positions and angles: a
-   mid-swing object should resume, not snap upright.
+1. Reset the delta clock baseline (`previous = now()`). Otherwise the first frame
+   after a ten-minute pause passes a ten-minute delta to the physics.
+2. Reset the sampling counters and increment a generation number. A completion
+   callback that resolves after the pause then cannot corrupt the new statistics.
+3. Reset transient interaction state (active deformations, hover cooldowns) and
+   the integration remainder of any physics. Keep positions and angles, so an
+   object that was mid-swing resumes its swing instead of snapping upright.
 
-Never fast-forward the animation clock to account for background time.
+Never fast-forward the animation clock to make up for time in the background.
 
 #### Theme and state transitions
 
-Bake the endpoints, interpolate one scalar.
+Bake both end states, and interpolate one scalar between them.
 
-- Anything expensive - volumetric bakes, radiance probes, per-variant textures -
-  is computed once for each end state at build time. In the reference scene that
-  was 8 raymarched textures total for the life of the scene, at that scene's
-chosen bake resolution.
-- Every frame, the transition is colour lerps, transform lerps and a shader mix
-  against a single eased value. A day/night toggle then costs nothing measurable
-  and reverses smoothly mid-flight.
-- Mix transparent art in **premultiplied** space, or edges pick up a dark outline
-  halfway through:
+- Compute anything expensive (volumetric bakes, radiance probes, per-variant
+  textures) once for each end state at build time. In the hezo.ai scene, that was
+  8 raymarched textures in total for the life of the scene, at its chosen bake
+  resolution.
+- Each frame, the transition is colour lerps, transform lerps and a shader
+  mix, all driven by one eased value. A day/night toggle then has no measurable
+  cost, and it reverses smoothly partway through.
+- Mix transparent art in premultiplied space. Otherwise edges get a dark outline
+  halfway through the transition:
 
   ```
   alpha = mix(a.a, b.a, t)
   rgb   = mix(a.rgb * a.a, b.rgb * b.a, t) / max(alpha, epsilon)
   ```
 
-- Warp the blend so it is zero at both ends (`t * (1 - t)` shaping) if the two
-  states differ in layout as well as colour. That keeps the endpoints exact.
+- If the two states differ in layout as well as colour, warp the blend with a term
+  that is zero at both ends (`t * (1 - t)` shaping). That keeps the endpoints
+  exact.
 
 ---

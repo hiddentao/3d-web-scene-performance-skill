@@ -1,62 +1,63 @@
 # The loading contract
 
-What the reader sees while the scene is not there yet, and how long they see it.
+What the reader sees before the scene arrives, and for how long.
 
 
-#### Hold for a deadline, not for completion
+#### Set a time limit for loading
 
-A percentage bar driven by a build whose duration you do not control is a promise
-you cannot keep. A hard deadline is a promise you can.
+While the page waits for the scene, it holds: it hides content and locks
+scrolling. You do not control how long the scene takes to build, so a percentage
+bar makes a promise you cannot keep. A fixed deadline for the hold is a promise
+you can keep.
 
 ```
 SCENE_ARRIVAL_MS = 5000      // counted from navigation start, not from hydration
 ```
 
-Five seconds is defensible for a scene that *is* the page's main subject, and
-indefensible for one that merely decorates it. Pick a number, justify it in a
-comment, and weigh it against two things that pull the other way:
+Five seconds is reasonable when the scene is the page's main subject. It is too
+long when the scene only decorates the page. Pick a number, explain the choice in
+a comment, and weigh it against two limits that pull the other way:
 
-- **Core Web Vitals.** Largest Contentful Paint counts "good" at 2.5 s. If the
-  held element is what a crawler or a field-data tool would score as the main
-  content, a 5 s hold is a measurably bad LCP on every first visit.
-- **This document's own budget**, two rows up in the table above, targets
-  readable content under 2 s.
+- Core Web Vitals: Largest Contentful Paint counts as "good" at 2.5 s. If a
+  crawler or a field-data tool would score the held element as the main content,
+  a 5 s hold gives a measurably bad LCP on every first visit.
+- The first-render budget in SKILL.md targets readable page content under 2 s.
 
-Holding a scroll-locked page for 5 s is a deliberate trade of a metric for a
-first impression. Make it knowingly, keep the escape hatches (repeat visits, slow
-connections, arriving mid-page), and shorten the number if the scene is not the
+A 5 s hold with scrolling locked trades a metric for a first impression. Make
+that trade on purpose. Keep the ways out of the hold (repeat visits, slow
+connections, arriving mid-page). Shorten the time limit if the scene is not the
 reason the reader came.
 
-Calibrate it against real measurements. In the reference scene a cold first visit
-reached the headline in about 4.5 s on a fast machine and connection, and a repeat
-visit reading the generation cache in about 3.4 s - so both usually finished inside
-the hold there, and slower devices and networks reached the late state. **The
-deadline is the longest a reader should wait, not a measured load time.**
-Re-measure with real network presets before changing it, or before changing the
-worker's download size or the build's cost.
+Set the number from real measurements. In the hezo.ai scene, a cold first visit
+reached the headline in about 4.5 s on a fast machine and connection. A repeat
+visit that read the cache of generated data took about 3.4 s. Both usually
+finished inside the hold there, and slower devices and networks reached the late
+state (described below). The deadline is the longest a reader should wait, not a
+measured load time. Measure again with real network presets before you change
+it, or before you change the worker's download size or the build's cost.
 
 #### The three states
 
 | State | What shows | Scrolling | Class |
 | --- | --- | --- | --- |
-| **Waiting** | Navigation and the placeholder only | Locked | `.is-loading`, no late class |
-| **Late** | The whole page, over a faint placeholder | Free | `.is-loading` + late class |
-| **Ready** | The scene | Free | `.is-ready` |
+| Waiting | Navigation and the placeholder only | Locked | `.is-loading`, no late class |
+| Late | The whole page, over a faint placeholder | Free | `.is-loading` + late class |
+| Ready | The scene | Free | `.is-ready` |
 
-**Waiting** belongs to the first screen. If the scene is the page's headline
-image, holding the headline for a few seconds so it arrives whole is better than
-showing it over a blank canvas that fills in.
+**Waiting** applies to the first screen only. If the scene is the page's headline
+image, hold the headline for a few seconds so it arrives whole. That is better
+than showing it over a blank canvas that fills in.
 
-**Late** is reached at the deadline, or immediately on a connection the browser
-reports as slow. The page appears and scrolls. Until everything in front of the
-reader has been built, it sits over an enlarged, faint version of the placeholder;
-after that the canvas shows and the distant stages finish in view, because only a
-few seconds of work remain.
+**Late** starts at the deadline, or at once if the browser reports a slow
+connection. The page appears and scrolls. Until everything in front of the reader
+is built, the page sits over a large, faint copy of the placeholder. After that,
+the canvas shows and the distant stages (the last parts of the build) finish in
+view, because only a few seconds of work remain.
 
-**Ready** is one transition: the placeholder dissolves as the finished scene fades
-in.
+**Ready** is one transition: the placeholder dissolves as the finished scene
+fades in.
 
-##### Immediate late on a slow connection
+##### Go straight to late on a slow connection
 
 ```
 if (connection?.saveData || ["slow-2g", "2g", "3g"].includes(connection?.effectiveType)) {
@@ -64,19 +65,17 @@ if (connection?.saveData || ["slow-2g", "2g", "3g"].includes(connection?.effecti
 }
 ```
 
-A reader on a metered or slow connection should never be made to wait for a
-decorative asset. Note `navigator.connection` is **Chromium-only** - neither
-Safari nor Firefox ships it to page scripts. The timer is what actually
-guarantees the deadline; this is only a shortcut for the browsers that can take
-it.
+Do not make a reader on a metered or slow connection wait for a decorative asset.
+`navigator.connection` exists only in Chromium browsers. Safari and Firefox do
+not give it to page scripts. The timer is what guarantees the deadline. This check
+is only a shortcut for the browsers that support it.
 
-#### Binding the deadline before hydration
+#### Start the timer before hydration
 
-On a slow network, page scripts arrive late - which is exactly the case the
-deadline exists for. If the timer starts at hydration it has already lost.
+On a slow network, page scripts arrive late, and that is the case the deadline
+exists for. A timer that starts at hydration starts too late.
 
-Serialise a small function into the document head of the page that carries the
-scene:
+Serialise a small function into the document head of the page that has the scene:
 
 ```
 function watchSceneArrival(deadline, lateClass, slotKey, slowTypes) {
@@ -91,41 +90,48 @@ function watchSceneArrival(deadline, lateClass, slotKey, slowTypes) {
 }
 ```
 
-`performance.now()` inside the head script is time since navigation start, so
-`deadline - performance.now()` is the remaining budget however long the HTML took
-to arrive.
+Inside the head script, `performance.now()` is the time since navigation start.
+So `deadline - performance.now()` is the time left, however long the HTML took to
+arrive.
 
-When the scene component mounts it claims the timer (`window[slotKey]()`) and owns
-the deadline from then on, re-deriving the remaining time itself.
+When the scene component mounts, it claims the timer by calling
+`window[slotKey]()`. From then on the component owns the deadline and calculates
+the remaining time itself.
 
-Keep this function ES5 and self-contained. It is serialised with `toString()` and
-runs before any module.
+Keep this function ES5 and self-contained, because it is serialised with
+`toString()` and runs before any module.
 
-#### Exceptions that skip the hold
+#### When to skip the hold
 
-The hold belongs to the first screen. Skip it when the reader is not on the first
+The hold is for the first screen. Skip it when the reader is not on the first
 screen or has already seen it.
 
 | Situation | Behaviour |
 | --- | --- |
-| Mounted already scrolled (back, forward, reload mid-page) | Mark late at once. Their content is where they left it. |
-| A second mount in the same document (client-side navigation back) | No hold, unless the connection is currently constrained. |
-| A retained scene is available | Render as ready on the first frame. Read the retention singleton in the state initialiser, not in an effect, or the page flashes a loading state for one frame. |
-| The device is refused a scene | Mark late *and* off at once, before first paint. "Not coming" is a stronger statement than "late". |
+| The page mounts already scrolled (back, forward, reload mid-page) | Mark late at once. The reader's content is where they left it. |
+| The scene mounts a second time in the same document (client-side navigation back) | No hold, unless the connection is constrained at that moment. |
+| A retained scene is available (a finished scene kept in memory across in-site navigation) | Render as ready on the first frame. Read the retention singleton (the module-level object that keeps the scene) in the state initialiser, not in an effect, or the page flashes a loading state for one frame. |
+| The device is refused a scene (it will not get one) | Mark late and off at once, before first paint. "Not coming" says more than "late". |
 
 #### The placeholder
 
-A spinner says "something is happening". A structurally honest placeholder says
-"this is what is being built, and here is how far it has got". The second is
-worth the effort when the wait is seconds rather than milliseconds.
+A spinner only says that something is happening. A placeholder that shows the
+structure of the scene says what is being built and how far the build has got.
+That is worth the effort when the wait is seconds rather than milliseconds.
 
-The pattern:
+Build it like this:
 
-1. Draw the subject as a simple line sketch - a few grouped SVG paths per part.
-2. Give one part away free at first paint, so the reader never sees an empty box.
-3. Map the remaining parts one-to-one onto the build milestones, in order.
+1. Draw the subject as a simple line sketch: a few grouped SVG paths for each
+   part.
+2. Draw one part for free at first paint, so the reader never sees an empty box.
+3. Map each remaining part to one build milestone (a named stage of the build),
+   in order.
 4. Draw the part in progress with small moving dots along its path, so the sketch
    never looks stalled between milestones.
+
+The progress handler draws one more part at each milestone. It also marks the
+container when the near-scene stage has published, which means the stage is
+built and drawn on screen.
 
 ```
 SKETCH = [partA, partB, partC, partD, partE, partF]   // one group per part
@@ -138,7 +144,8 @@ onProgress({ stage, published }) {
 }
 ```
 
-Drawing is pure CSS against one custom property, so the RAF loop is not involved:
+The drawing is pure CSS driven by one custom property, so the RAF loop plays no
+part:
 
 ```css
 /* pathLength="1" normalises every path: one dash hides it, zero draws it */
@@ -152,55 +159,55 @@ Drawing is pure CSS against one custom property, so the RAF loop is not involved
                               * clamp(0, var(--built,0) + 2 - var(--i), 1)); }
 ```
 
-**Delay the placeholder's own appearance.** A 0.4 s delayed fade-in means a fast
-load never flashes it. There is nothing worse than a loading indicator that
-appears and disappears in 200 ms.
+**Delay the placeholder.** Fade it in after a 0.4 s delay, so a fast load never
+flashes it. Avoid a loading indicator that appears and disappears within 200 ms.
 
-**Never move backwards.** `showBuilt` takes a max, not an assignment. Progress
-that goes down reads as a failure even when it is a reorder.
+**Never move backwards.** `showBuilt` keeps the maximum value instead of
+assigning the new one. Progress that goes down looks like a failure, even when
+the cause is only a reorder.
 
 #### Revealing the canvas
 
-Keep the canvas hidden while the reader waits, and reveal it once - as the
-placeholder dissolves into it. A canvas that is visible from the start shows the
-scene assembling itself, which looks broken rather than progressive.
+Keep the canvas hidden while the reader waits. Reveal it once, as the placeholder
+dissolves into it. A canvas that is visible from the start shows the scene
+assembling itself, and that looks broken.
 
-There is one useful early reveal. Once `NEAR_SCENE_MILESTONE` has published,
-everything in front of the reader exists; the remaining stages add distance. In
-the late state, show the canvas at that point and let the far scenery finish in
-view:
+One early reveal is useful. Once `NEAR_SCENE_MILESTONE` has published, everything
+in front of the reader exists, and the remaining stages only add distance. In the
+late state, show the canvas at that point and let the far scenery finish in view:
 
 ```css
 html.is-late .walk[data-near-scene] canvas[data-first-frame="true"] { opacity: 1 }
 ```
 
-Two attributes, two different facts: `data-near-scene` is "the build has got far
-enough", `data-first-frame` is "the GPU has actually presented something". Both
-are needed - revealing on the first alone can show an empty canvas.
+The two attributes record different facts. `data-near-scene` means the build has
+got far enough. `data-first-frame` means the GPU has presented a frame. You need
+both: a reveal on `data-near-scene` alone can show an empty canvas.
 
-#### Gating every hold rule on scripting
+#### Apply hold rules only when scripts run
 
-Everything that hides content, locks scrolling or pauses an animation must sit
-inside:
+Put every rule that hides content, locks scrolling or pauses an animation inside
+this media query:
 
 ```css
 @media (scripting: enabled) { /* ...every hold rule... */ }
 ```
 
-Without that gate, a reader with JavaScript disabled gets a page permanently stuck
-in the server-rendered loading state: content hidden, scroll locked, forever. The
-media feature matches only when scripts actually run, so it is exactly the right
-condition.
+Without it, a reader with JavaScript off gets a page stuck for good in the
+server-rendered loading state, with content hidden and scrolling locked. The
+media feature matches only when scripts run, so it is the right condition.
 
-Add a `<noscript>` block that forces the scene container out of the layout and the
-content into normal document flow. That is the same end state as the static path
-in [Scroll, interaction and graceful degradation](interaction.md#scroll-interaction-and-graceful-degradation), and it should share its rules.
+Add a `<noscript>` block that takes the scene container out of the layout and
+puts the content into normal document flow. That is the same end state as the
+static page without the scene in
+[scroll, interaction and graceful degradation](interaction.md#scroll-interaction-and-graceful-degradation).
+Share the rules between the two.
 
-#### Entrance animations across the hold
+#### Entrance animations during the hold
 
-If the page has an entrance animation - a typed headline, a staged reveal - and
-the hold hides it, the animation runs out of its delays unseen and the reader gets
-nothing.
+Some pages have an entrance animation, such as a typed headline or a staged
+reveal. If the hold hides it, the animation uses up its delays unseen and the
+reader never sees it.
 
 **Pause it, do not replay it.**
 
@@ -212,23 +219,23 @@ nothing.
 }
 ```
 
-One trap: **nothing may change `animation-delay` between the paused and running
-states.** The delay is counted from the resume, so moving it at that moment skips
-the sequence forward and the animation appears to jump.
+**Do not change `animation-delay` between the paused and running states.** The
+delay counts from the resume, so a change at that moment skips the sequence
+forward and the animation seems to jump.
 
-Two related rules:
+Also:
 
-- The pause belongs inside the scripting gate. An unconditional pause leaves a
-  no-JS reader with an invisible headline.
-- Bake per-element delays into inline custom properties at render time, using a
-  deterministic hash rather than `Math.random`, so server and client agree. A
-  delay that differs between them is a hydration mismatch. This also makes the
+- Put the pause inside the scripting media query. An unconditional pause leaves a
+  reader without JavaScript with an invisible headline.
+- Bake per-element delays into inline custom properties at render time. Use a
+  deterministic hash instead of `Math.random`, so server and client agree. A delay
+  that differs between them causes a hydration mismatch. This also makes the
   animation pure CSS, so it plays with JavaScript off.
 
 #### Accessibility
 
-- `aria-hidden="true"` on the canvas. It is decoration; everything it conveys must
-  exist in text.
+- Put `aria-hidden="true"` on the canvas. It is decoration, so everything it shows
+  must also exist as text.
 - The placeholder is the progress indicator:
 
   ```html
@@ -237,36 +244,36 @@ Two related rules:
   ```
 
   Update `aria-valuenow` from the same function that advances the drawing.
-- Keep focus order sane during the hold. If content is hidden, it must not be
-  focusable, or a keyboard reader tabs into nothing.
-- If a fallback list stands in for interactive canvas elements, make sure it has a
-  heading in every state where it is shown - including on focus, when a keyboard
-  reader reaches it before the scene is ready.
-- Never trap scroll without a deadline that releases it.
+- Keep focus order sensible during the hold. Hidden content must not be
+  focusable, or a keyboard user tabs into nothing.
+- If a fallback list stands in for interactive canvas elements, give it a heading
+  in every state where it shows. This includes on focus, when a keyboard user
+  reaches it before the scene is ready.
+- Never lock scrolling without a deadline that releases it.
 
 #### Reduced motion
 
 Under `prefers-reduced-motion: reduce`:
 
-- Remove the placeholder's fade, stagger and marching dots. The milestone stepping
-  itself stays - it is a data model, not an animation.
-- Remove the transition between loading states. The state changes happen, they
-  just happen instantly.
-- Settle any entrance animation to its finished state.
-- Keep the deadline and the state machine unchanged. Reduced motion is about
-  motion, not about timing out differently.
+- Remove the placeholder's fade, stagger and moving dots. Keep the step at each
+  milestone. It is a data model, not an animation.
+- Remove the transitions between loading states. The states still change, but
+  instantly.
+- Show any entrance animation in its finished state.
+- Keep the deadline and the state machine unchanged. Reduced motion changes
+  motion only, not timing.
 
 #### Anti-patterns
 
 | Do not | Because |
 | --- | --- |
-| Show a percentage derived from elapsed time | It is a lie, and it stalls at 90% |
-| Block content on the scene with no deadline | You do not control the duration |
+| Show a percentage based on elapsed time | It is false, and it stalls at 90% |
+| Hide content until the scene arrives, with no deadline | You do not control how long the build takes |
 | Reveal the canvas before the first presented frame | The reader sees an empty box or a half-built scene |
-| Let progress go backwards | Reads as failure |
-| Lock scroll outside a scripting gate | No-JS readers get a broken page |
-| Replay an entrance animation after the hold | It has already played, invisibly; pause it instead |
-| Report progress on submission | The indicator runs ahead of the picture |
-| Use a spinner for a five-second wait | It carries no information for five seconds |
+| Let progress go backwards | It looks like a failure |
+| Lock scrolling outside the scripting media query | Readers without JavaScript get a broken page |
+| Replay an entrance animation after the hold | It has already played unseen. Pause it instead |
+| Report progress when frames are submitted to the GPU | The indicator runs ahead of what is on screen |
+| Use a spinner for a five-second wait | It tells the reader nothing for five seconds |
 
 ---

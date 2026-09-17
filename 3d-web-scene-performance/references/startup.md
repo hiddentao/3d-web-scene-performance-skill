@@ -1,85 +1,89 @@
 # Startup: time to first render
 
-Getting a scene on screen without freezing the page that carries it.
+How to get a scene on screen without freezing the page around it.
 
 
 #### Where the milliseconds go
 
-Measure this before optimising anything. The order is usually a surprise.
+Measure this before you optimise anything. The order usually surprises people.
 
 | Phase | Typical cost | Who pays |
 | --- | --- | --- |
-| HTML, CSS, first paint | 0.5 - 2 s on a throttled connection | network |
-| Framework bundle and hydration | 0.3 - 2 s | network, then main thread |
-| Renderer bundle download | 1 - 3 s | network |
-| Backend init, device request | 50 - 300 ms | main thread or worker |
+| HTML, CSS, first paint | 0.5-2 s on a throttled connection | network |
+| Framework bundle and hydration | 0.3-2 s | network, then main thread |
+| Renderer bundle download | 1-3 s | network |
+| Backend init, device request | 50-300 ms | main thread or worker |
 | Procedural generation | seconds | CPU |
 | Texture painting | hundreds of ms each | CPU |
-| Shader and pipeline assembly | **often the largest single item** | CPU |
+| Shader and pipeline assembly | often the largest single item | CPU |
 | GPU uploads, first compile | hundreds of ms | GPU |
 
-Two findings from the reference scene that generalise:
+Two findings from the hezo.ai scene apply to other scenes too:
 
 - The biggest early win had nothing to do with the renderer. The page shipped all
   twelve translation catalogs before the scene bundle could start. Shipping only
-  the active one took the page bundle from 283 KB to 30 KB compressed and moved
-  the renderer's download from 7.2 s to about 1.5 s.
-- The second biggest was not rebuilding geometry that an earlier build stage had
-  already published.
+  the active one took the page bundle from 283 KB to 30 KB compressed. The
+  renderer's download then finished in about 1.5 s instead of 7.2 s.
+- The second biggest win was to stop rebuilding geometry that an earlier build
+  stage had already published (put on screen).
 
-Profile the page, not the renderer, first.
+Profile the whole page first, not only the renderer.
 
 #### Get the renderer off the main thread
 
-Transfer a fresh canvas to a worker and do generation, compilation, uploads and
-rendering there. The main thread keeps scroll, input, hydration and the DOM.
+Transfer a fresh canvas to a worker, and do generation, compilation, uploads
+and rendering there. The main thread keeps scroll, input, hydration and the DOM.
 
 ```
 offscreen = canvas.transferControlToOffscreen()
 worker.postMessage({ type: "init", canvas: offscreen, width, height, tier }, [offscreen])
 ```
 
-Rules that cost real debugging time to learn:
+Rules:
 
-- **Never probe the canvas context before transferring it.** Getting a context
-  makes the canvas ineligible for transfer, and the failure is late and confusing.
-- **The transfer is one way.** If worker startup fails, the canvas is spent.
-  Remove it from the DOM and make exactly one fallback attempt on a **fresh**
-  canvas, on the main thread.
-- **Decide the device row on the page thread** and send it with `init`. A worker
-  has no `matchMedia` and no `screen`. See [Device tiers, LOD and cost curves](device-tiers.md#device-tiers-lod-and-cost-curves).
+- **Never probe the canvas context before you transfer it.** Once you get a
+  context, the canvas cannot be transferred. The failure comes late and is hard
+  to understand.
+- **The transfer is one way.** If worker startup fails, you cannot use that canvas
+  again. Remove it from the DOM. Then make exactly one fallback attempt, on a
+  fresh canvas, on the main thread.
+- **Choose the device row on the page thread** and send it with `init`. The device
+  row is the row of settings for this type of device, from the device settings
+  table. A worker has no `matchMedia` and no `screen`. See
+  [device tiers](device-tiers.md#device-tiers-lod-and-cost-curves).
 - **Keep a main-thread path** for browsers without `OffscreenCanvas` or `Worker`.
-  It can be the same builder code; it just cannot be moved or retained later.
+  It can use the same builder code. You cannot move or retain that scene later.
 - **Render the HTML and start its own animation loop before the scene
   initialises.** The page should be interactive while the worker is still
   downloading.
 
-##### Message contract
+##### Worker messages
 
 | Direction | Message | Notes |
 | --- | --- | --- |
 | page -> worker | `init` | canvas, size, device row |
 | page -> worker | `update` | camera state, one outstanding at a time |
-| page -> worker | `pointer` | carries `sentAt`; dropped by the worker if stale |
+| page -> worker | `pointer` | carries `sentAt`; the worker drops it if it is stale |
 | page -> worker | `visibility`, `resetTiming`, `resize`, `dispose` | |
-| worker -> page | `progress` | stage name, and whether it has been drawn |
-| worker -> page | `frame` | acknowledges an `update`, releases the next one |
+| worker -> page | `progress` | stage name, and whether the stage has been drawn |
+| worker -> page | `frame` | acknowledges an `update` and releases the next one |
 | worker -> page | `ready`, `error`, `disposed` | |
 
-When retiring a worker, post `dispose`, wait a bounded time (about 1.2 s) for the
-`disposed` acknowledgement, then terminate regardless.
+To retire a worker, post `dispose`. Wait a limited time (about 1.2 s) for the
+`disposed` reply. Then terminate the worker, whether or not the reply came.
 
 #### One download, started early
 
-##### One asset
+##### Bundle the worker as one file
 
-A worker bundle split into chunks becomes serial blocking requests inside the
-worker. Force the bundler to emit one self-contained file:
+If the bundler splits the worker bundle into chunks, the worker must load them
+one after another, and each request blocks it. Make the bundler emit one
+self-contained file:
 
 - Set the worker entry to disable async chunks.
 - Exclude the worker chunk from every split-chunks cache group *and* from the
   top-level chunks filter.
-- Then verify against the emitted bundle rather than trusting configuration.
+- Then check the emitted bundle. Do not trust the configuration alone.
 
 ```
 # audit the real output
@@ -95,10 +99,11 @@ walk(ast, node => {                                # shader source contains stri
 assert(noOtherChunkIncludes(assets[0]))            # and it must not leak into a page bundle
 ```
 
-##### Started before hydration
+##### Start the download before hydration
 
-The request should not wait for the framework. Emit a small script in the document
-head that constructs the worker immediately, and have hydration adopt it.
+Do not make the request wait for the framework. Put a small script in the
+document head that constructs the worker at once. Hydration then adopts that
+worker (takes it over) instead of constructing a new one.
 
 ```
 // in <head>, on the page that needs it, serialised from a real function
@@ -125,19 +130,21 @@ Then:
 worker = takeWarmSceneWorker() ?? new Worker(url, { type: "module" })
 ```
 
-Four things this must get right:
+The warm-worker setup must get four things right:
 
 1. **Read the hashed filename from the build manifest at render time.** Never
    hard-code a hash. Fail the build if the manifest does not contain exactly one
-   matching asset - that failure is worth having.
-2. **Gate before warming.** If this device is refused a scene (see
-   [Persistence: caching, retention and survival](persistence.md#persistence-caching-retention-and-survival)), the head script must return before constructing anything.
-   A gated device should not spend a megabyte of a metered connection.
-3. **Release an unclaimed worker** on four signals, not three: `pagehide`, a
-   worker error, a timeout, **and your framework's client-side route change**.
-   The first three cover the plain-document cases. In a single-page app,
-   navigating away from the scene's route fires none of them, so without the
-   fourth every navigation leaks a worker for the life of the tab:
+   matching asset. That build failure is useful.
+2. **Check the gate before you warm the worker.** Warming means constructing the
+   worker early so its download starts. If the page has refused this device a
+   scene (see [persistence](persistence.md#persistence-caching-retention-and-survival)),
+   the head script must return before it constructs anything. A device that is
+   refused a scene should not spend a megabyte of a metered connection.
+3. **Release an unclaimed worker** on four signals: `pagehide`, a worker error, a
+   timeout, and your framework's client-side route change. The first three cover
+   plain documents. In a single-page app, a navigation away from the scene's route
+   fires none of them. Without the fourth signal, every such navigation leaks a
+   worker for the life of the tab:
 
    ```
    // the hook's name differs per framework; the requirement does not
@@ -145,26 +152,26 @@ Four things this must get right:
      if (from.path !== to.path) releaseWarmWorker()
    })
    ```
-4. **Adopt, do not duplicate.** Assert in a test that exactly one worker is ever
-   constructed on the happy path.
-
-Also add a `preconnect` for any third-party origin the page will contact during
-this window, so a cold handshake does not land inside the budget.
+4. **Adopt the warm worker. Do not construct a second one.** Add a test that
+   asserts exactly one worker is ever constructed on the happy path.
 
 #### The cooperative scheduler
 
+A cooperative build does its work in small pieces. Between pieces it yields: it
+gives control back to the browser so the page can paint and handle input.
+
 ##### Yield across real task boundaries
 
-A `Promise.resolve()` loop is a microtask loop. It never lets the browser paint or
-deliver input, no matter how many times it "yields".
+A `Promise.resolve()` loop is a microtask loop. However often it "yields", the
+browser cannot paint or deliver input.
 
-`setTimeout(0)` is a task, but the HTML spec clamps a nested timer to **4 ms**
-once the nesting level exceeds 5, and a cooperative build is nothing but nested
-timers. Measured cost per yield runs a little above the clamp once dispatch
-overhead is counted. Either way, a build that yields a few hundred times burns
-most of a second of pure idle time on every load.
+`setTimeout(0)` is a task. But once the nesting level is above 5, the HTML spec
+clamps a nested timer to 4 ms, and a cooperative build is nothing but nested
+timers. The measured cost per yield is a little above the clamp once you count
+dispatch overhead. So a build that yields a few hundred times wastes most of a
+second of idle time on every load.
 
-Use a message-channel round trip, which is an ordinary task with no clamp:
+Use a message-channel round trip. It is an ordinary task with no clamp:
 
 ```
 channel = new MessageChannel()
@@ -185,13 +192,15 @@ yieldTask(signal) {
 }
 ```
 
-`scheduler.yield()` is a better primitive where it exists; keep the message
-channel as the fallback.
+Where `scheduler.yield()` exists, use it. Keep the message channel as the
+fallback.
 
 ##### The slice budget
 
-Scatter checkpoints liberally through the build - inside loops, between objects -
-and let the scheduler decide which ones actually yield:
+A checkpoint is a call in the build code where the scheduler may yield. A slice
+is the work done between two yields, and its budget is how long it may run.
+Put many checkpoints in the build (inside loops, between objects), and let the
+scheduler decide which ones yield:
 
 ```
 createScheduler({ budgetMs = 6, onProgress, onPublish, signal }) {
@@ -213,13 +222,14 @@ createScheduler({ budgetMs = 6, onProgress, onPublish, signal }) {
 }
 ```
 
-A checkpoint inside a tight loop costs one subtraction when the slice is young.
-That is what makes it safe to write `if (i % 64 === 0) await checkpoint("...")`
-everywhere.
+While the slice is still inside its budget, a checkpoint costs one subtraction.
+That is why it is safe to write `if (i % 64 === 0) await checkpoint("...")`
+everywhere, including tight loops.
 
-**Forced and published checkpoints never skip.** Any stage the loading UI depends
-on must be one of those two, or a fast machine will silently skip it and the
-progress indicator will stall. Enforce that mechanically:
+**Forced and published checkpoints never skip.** The loading UI tracks some
+stages (its milestones). Each of those stages must use a forced or a published
+checkpoint. Otherwise a fast machine skips the stage without a sign, and the
+progress indicator stalls. Enforce this with a check:
 
 ```
 for (milestone of LOADING_MILESTONES) {
@@ -228,10 +238,11 @@ for (milestone of LOADING_MILESTONES) {
 }
 ```
 
-##### Yield through a sort too
+##### Yield during a sort
 
-A native sort over a large array monopolises the thread. Sort short runs, then
-merge in bounded pieces, yielding between them. The result has the same ordering.
+A native sort over a large array holds the thread until it finishes. Sort short
+runs, then merge them in bounded pieces and yield between pieces. The result has
+the same order.
 
 ```
 function* sortItems(items, compare) {
@@ -243,10 +254,11 @@ function* sortItems(items, compare) {
 }
 ```
 
-#### Progressive publication
+#### Publish the scene in stages
 
-Order the stages by what the reader looks at first, and make each one a complete,
-coherent slice.
+To publish a stage is to compile it, draw it and wait until the GPU has finished
+that frame. Order the stages by what the reader looks at first. Each stage must
+look complete and consistent on its own.
 
 ```
 LOADING_MILESTONES = [
@@ -259,11 +271,12 @@ LOADING_MILESTONES = [
 NEAR_SCENE_MILESTONE = "near-detail"
 ```
 
-`NEAR_SCENE_MILESTONE` earns its own name: once it has published, everything in
-front of the reader exists. The loading UI can reveal the canvas there and let the
-distant stages finish in view. See [The loading contract](loading-ui.md#the-loading-contract).
+`NEAR_SCENE_MILESTONE` has its own name for a reason. Once it has published,
+everything in front of the reader exists. The loading UI can show the canvas at
+that point and let the distant stages finish in view. See
+[the loading contract](loading-ui.md#the-loading-contract).
 
-##### Publishing is four steps, in order
+##### Publishing takes four steps, in order
 
 ```
 onPublish(stage):
@@ -275,14 +288,17 @@ onPublish(stage):
   markPublished(stage)
 ```
 
-Compile, then render, then wait. Reporting progress on submission rather than on
-completion makes the indicator run ahead of the picture.
+Compile, then render, then wait. If you report progress when the frame is
+submitted instead of when the GPU completes it, the indicator runs ahead of the
+picture.
 
 ##### Interleaving concurrent builders
 
-If two builders must interleave - a ground surface before the structures on it,
-before the scatter that sits against those - use two-phase latches rather than one
-sequential build:
+Sometimes two builders must take turns. For example, the ground surface comes
+before the structures on it, and the structures come before the scatter placed
+against them. Use two-phase latches (gates) for this instead of one sequential
+build. A builder stops at a gate, and the orchestrator (the code that runs both
+builders) opens it:
 
 ```
 gate = { arrived: false, released: false }
@@ -299,41 +315,42 @@ orchestrator releases the floor gate  -> surface builder adds near detail
 ...
 ```
 
-Each gate crossing is a point where both builders are in a known state, which is
-exactly what makes it safe to publish and to name as a milestone.
+At each gate crossing, both builders are in a known state. That makes it safe to
+publish there and to name the point as a milestone.
 
 #### Reusing what earlier stages published
 
-##### The contract, stated without an engine
+##### The general rules, for any engine
 
-Before the implementation below, the general form. A build split into phases
-shares work across them when all four hold:
+A build split into phases can share work across the phases when all four of
+these are true:
 
-1. **Identity is stable.** A constructed object that a later phase still needs is
-   the *same* object, not an equal one. Whatever your engine uses for identity -
-   an object reference, a handle, a buffer id - must not change.
+1. **Identity is stable.** When a later phase still needs a constructed object,
+   it must be the *same* object, not an equal one. Your engine's identity (an
+   object reference, a handle, a buffer id) must not change.
 2. **Membership is recorded, not recomputed.** Each phase knows which items it has
-   already revealed, so a later phase builds only what is new. A `published` set
-   per batch is enough.
-3. **Selections only grow.** Phases reveal nearest first, so an earlier phase's
-   selection is never withdrawn. That is what makes "the selection is unchanged,
-   so reuse the object" a sound inference rather than a guess.
-4. **The swap is atomic.** Between removing the old object and adding the new
-   one, nothing may yield. A frame rendered mid-swap shows neither.
+   already revealed, so a later phase builds only the new items. A `published`
+   set per batch is enough.
+3. **Selections only grow.** A selection is the set of items a phase reveals.
+   Phases reveal the nearest items first, so a later phase never
+   withdraws an earlier selection. So when the selection is unchanged, you can
+   safely reuse the object.
+4. **The swap is atomic.** Nothing may yield between removing the old object and
+   adding the new one. A frame rendered in the middle of the swap shows neither
+   object.
 
-If your engine rebuilds a pipeline or reuploads a buffer when a property is
-touched, find out which property - question 6 in
-[Six questions to ask of any engine](../SKILL.md#six-questions-to-ask-of-any-engine) - and
-leave it alone on the reuse path. That single check is usually the difference
-between a reuse optimisation that works and one that quietly rebuilds everything
-anyway.
+Your engine may rebuild a pipeline or reupload a buffer when you touch a certain
+property. Find out which property (question 6 in
+[the six engine questions](../SKILL.md#six-questions-to-ask-of-any-engine)), and
+do not touch it on the reuse path. This one check usually decides whether reuse
+saves work or silently rebuilds everything anyway.
 
-Rebuilding accumulated batches at every stage is the classic progressive-loading
-mistake: five stages means the first stage's geometry is built five times and
+A common mistake in progressive loading is to rebuild all accumulated batches at
+every stage. With five stages, the first stage's geometry is built five times and
 uploaded five times.
 
-Track what each stage has already revealed, and give a later stage only the new
-pieces:
+Instead, record what each stage has already revealed, and give a later stage only
+the new pieces:
 
 ```
 publish(label, threshold, final):
@@ -355,27 +372,26 @@ publish(label, threshold, final):
   await checkpoint(label, { publish: true })
 ```
 
-Two properties to preserve, and to test:
+Keep these two properties, and test them:
 
-- **No `await` inside the swap.** If a yield lands mid-swap, a published frame
-  renders a scene with the old mesh removed and the new one not yet added.
-- **Stages publish nearest first, so a selection is never withdrawn.** That is
-  what makes "same selection means reuse the object" sound.
+- **No `await` inside the swap.** If a yield happens during the swap, a published
+  frame shows the scene with the old mesh removed and the new one not yet added.
+- **Stages publish nearest first, so a selection is never withdrawn.** This is
+  why "same selection means reuse the object" is safe.
 
-Test it by running the whole build twice - once normally, once with reuse forced
-off - and asserting the final geometry, draw order and per-instance data are
-identical. Then assert that a reused mesh's GPU resources were never touched
-again.
+To test it, run the whole build twice: once normally, and once with reuse forced
+off. Assert that the final geometry, draw order and per-instance data are
+identical. Then assert that nothing touched a reused mesh's GPU resources again.
 
-In the reference implementation this cut repeated buffer allocation by 42-44%
-with exact scene parity - measured by counting allocations in the build, not by
-timing, so it is a count rather than a wall-clock saving.
+In the hezo.ai scene, this cut repeated buffer allocation by 42-44% with exact
+scene parity. The number comes from counting allocations during the build, not
+from timing, so it is a count and not a wall-clock saving.
 
 #### Generators: one body, two drivers
 
-Procedural painting and generation want to be interruptible during startup and
-synchronous in a test. Write the body once as a generator, and give it two
-drivers.
+During startup, procedural painting and generation must be interruptible. In a
+test, they must run synchronously. Write the body once as a generator, and give
+it two drivers (loops that run the generator):
 
 ```
 function* paintGroundSteps() {
@@ -401,22 +417,25 @@ async function finishAsync(steps, checkpoint) {
 }
 ```
 
-Two benefits beyond the yielding. The yielded string is a human-readable label the
-loading UI can show. And `finally { steps.return() }` gives you cancellation
-cleanup for free, which a hand-rolled index-based loop does not.
+This gives two more benefits. The yielded string is a readable label that the
+loading UI can show. And `finally { steps.return() }` gives you cleanup on
+cancellation with no extra code. A hand-written loop over an index does not give
+you that.
 
 #### Cancellation and disposal
 
-Everything below hangs off one `AbortController` for the whole build.
+Use one `AbortController` for the whole build. Everything below depends on it.
 
-- **Check the signal at every checkpoint**, and reject any pending yield when it
-  fires. A cancelled build must not continue for another two seconds.
+- **Check the signal at every checkpoint**, and reject any pending yield when the
+  signal fires. A cancelled build must not continue for another two seconds.
 - **Ignore late callbacks.** Guard every `then` on a GPU promise with a generation
   counter and a disposed flag.
-- **Dispose every partial owner exactly once.** A build aborted at stage three
-  owns geometry, materials and textures that are not attached to the scene graph.
-  Collect owners as you create them - not by traversing the scene at the end, which
-  misses unpublished work and node-only textures.
+- **Dispose every partial owner exactly once.** An owner is anything you must
+  dispose, such as a geometry, a material or a texture. A build aborted at stage
+  three owns geometry, materials and textures that are not attached to the scene
+  graph. Collect owners as you create them.
+  Do not find them by traversing the scene at the end: that misses unpublished
+  work and node-only textures.
 
 ```
 dispose():
@@ -434,18 +453,20 @@ cleanup():
   canvas.remove()
 ```
 
-Test cancellation at **every** publish label, asserting that every owner created
-and every owner retained is disposed exactly once and the scene ends with zero
-children. That test found more real leaks than any profiler.
+Test cancellation at every publish label. Assert that every owner created and
+every owner retained is disposed exactly once, and that the scene ends with zero
+children. This test catches more leaks than a profiler does.
 
 #### Keeping the connection clear
 
-- Turn off speculative route prefetching on the page that carries the scene, and
-  on any connection the browser reports as constrained. Prefetching the rest of
-  the site while the scene downloads is the framework competing with itself.
+- Turn off speculative route prefetching on the page that carries the scene. Also
+  turn it off on any connection that the browser reports as constrained. If the
+  framework prefetches the rest of the site while the scene downloads, it competes
+  with itself for the connection.
 - Load only the data the current page needs. See the translation-catalog finding
   at the top of this file.
-- Preconnect to third-party origins the page will use during startup.
+- Add a `preconnect` for each third-party origin the page contacts during startup,
+  so that a cold handshake does not use up part of the startup budget.
 - Do not start workers on pages that do not have a scene.
 
 ---
