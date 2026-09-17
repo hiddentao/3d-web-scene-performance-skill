@@ -6,6 +6,8 @@ desktops, show something within five seconds on a slow connection, survive
 in-site navigation without rebuilding, and degrade to a readable page when the
 renderer fails.
 
+**Live demo: [hezo.ai](https://hezo.ai)**
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Validate](https://github.com/hiddentao/3d-web-scene-performance-skill/actions/workflows/validate.yml/badge.svg)](https://github.com/hiddentao/3d-web-scene-performance-skill/actions/workflows/validate.yml)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec%20compliant-7c3aed)](https://agentskills.io/specification)
