@@ -1,9 +1,9 @@
 # 3D Web Scene Performance
 
-An [Agent Skill](https://agentskills.io) that teaches coding agents to build
-real-time 3D scenes on web pages. The scenes hold 60 fps across phones, tablets
-and desktops, show something within five seconds on a slow connection, survive
-in-site navigation without rebuilding, and degrade to a readable page when the
+An [Agent Skill](https://agentskills.io) that teaches coding agents to build fast
+3D scenes for web pages. The scenes run at 60 fps on phones, tablets and
+desktops, show something within five seconds on a slow connection, stay loaded
+when visitors move between pages, and fall back to a normal page if the 3D
 renderer fails.
 
 **Live demo: [hezo.ai](https://hezo.ai)**
@@ -16,49 +16,54 @@ renderer fails.
 
 ## What this is
 
-The skill comes from the scroll-driven 3D landscape on the hezo.ai marketing
-homepage, a procedural scene built with Three.js r180 and WebGPU. That scene
-started as a main-thread build that froze the page. It became a worker-rendered
-scene with device tiers, progressive publication, a generation cache and an
-adaptive frame controller, and this skill records how it got there.
+The skill comes from the 3D landscape on the hezo.ai homepage. The landscape is
+generated in code, moves as you scroll, and uses Three.js r180 and WebGPU.
 
-It gives an agent nine rules, the decision tables behind them, and seven
-references covering device tiering, the frame budget, startup, the loading
-contract, persistence, interaction and verification. The rules apply to any
-engine. The worked examples show how the hezo.ai scene implements each rule, and
-every number given as a measurement was measured on that scene, on stated
-hardware.
+The first version built the scene on the main thread and froze the page. The
+final version renders in a web worker, picks settings for each type of device,
+builds the scene in stages, caches generated data between visits, and lowers
+quality when the frame rate drops. This skill explains how to build a scene that
+way.
+
+It gives an agent nine rules and seven reference files. The references cover
+device settings, frame timing, startup speed, loading screens, caching and page
+navigation, user input, and measuring performance. The rules work with any 3D
+engine. The examples and measured numbers come from the hezo.ai scene.
 
 ## The nine rules
 
-1. **Measure completed frames, not callbacks.** A RAF counter reports 60 fps on
- a device drawing 22.
-2. **Bound work in flight.** Unbounded submission turns frame time into input
- latency and hides the overload from your own metrics.
-3. **One table per build, not branches at call sites.** A single `quality`
- scalar cannot express a row that wants a third of the scatter at full
- resolution.
-4. **A declined pass is a whole pass, not a smaller one.** Decline shadows,
- reflections, AO and the post chain together, or you save only a fraction of
- their cost.
-5. **The page must read without the scene.** No JavaScript, a failed renderer
- and a device that died last time all land on one static path. Build that path
- first.
-6. **Publish front to back, in complete slices.** Each stage renders on its own,
- with a real task boundary before the next one starts.
-7. **Hold for a deadline, not for completion.** Never make content wait on work
- whose duration you do not control.
-8. **Cache generated data, never engine objects.** A cache hit must replay
- exactly what generation returns.
-9. **Verify after your build tools have touched the code.** A shader that
- compiles from source can still fail in production.
+1. **Count frames the GPU finishes.** The browser's animation callback keeps
+ firing when the GPU falls behind. A counter based on it can show 60 fps while
+ the screen updates only 22 times a second.
+2. **Do not let frames pile up.** Do not send a new frame while two are still
+ unfinished. A backlog makes the scene lag behind scrolling and taps, and your
+ frame counter will not show it.
+3. **Keep device settings in one table.** Give each type of device one row of
+ settings. Separate `isMobile` checks across the code drift apart, and one
+ quality slider cannot say "fewer objects but full sharpness".
+4. **Turn expensive effects fully off.** Shadows, reflections, ambient occlusion
+ and post-processing each redraw the whole scene. Turn them off together, and
+ skip them in the code instead of setting them to zero.
+5. **Make the page work without the 3D scene.** If JavaScript is off, the
+ renderer fails or the device crashed on the last visit, show a static page
+ with the same content. Build that page first.
+6. **Build the scene in stages.** Start with what the visitor sees first. Each
+ stage should look complete, and the browser needs a pause between stages to
+ handle input.
+7. **Set a time limit for loading.** Decide how long the visitor waits. After
+ that, show the page and let the scene appear behind it when it is ready.
+8. **Cache generated data, not 3D objects.** Numbers and arrays can be saved and
+ reloaded. Meshes, materials and GPU resources cannot. Data from the cache must
+ give the same result as generating it again.
+9. **Test the production build.** Bundlers change your code, so a shader that
+ works in development can break in production.
 
 ## Install
 
 This skill follows the [Agent Skills specification](https://agentskills.io/specification),
 so you install it the same way in every tool: copy the `3d-web-scene-performance`
-directory into the folder where your tool looks for skills. Keep the directory
-name as it is, because the spec requires it to match the skill's `name`.
+directory into the folder where your tool looks for skills. Do not rename the
+directory. The spec requires it to match the skill's name.
 
 ```bash
 git clone https://github.com/hiddentao/3d-web-scene-performance-skill.git
@@ -81,25 +86,22 @@ mkdir -p ~/.claude/skills
 cp -r 3d-web-scene-performance-skill/3d-web-scene-performance ~/.claude/skills/
 ```
 
-To keep it current with `git pull`, use a symlink instead:
+To get updates with `git pull`, use a symlink instead:
 
 ```bash
 ln -s "$PWD/3d-web-scene-performance-skill/3d-web-scene-performance" ~/.claude/skills/
 ```
 
-The paths in this section come from each tool's own documentation.
+The paths in this section come from each tool's documentation.
 
 ### Claude Code plugin
 
-Run these two commands from a shell, or as slash commands in a session:
+Run these two commands in a shell, or as slash commands in a session:
 
 ```bash
 claude plugin marketplace add hiddentao/3d-web-scene-performance-skill
 claude plugin install 3d-web-scene-performance@3d-web-scene-performance-skill
 ```
-
-The part after `@` is the marketplace's `name` field. This repo sets it to the
-repo name so the two match.
 
 ### claude.ai and the Claude desktop app
 
@@ -114,39 +116,34 @@ cd 3d-web-scene-performance-skill
 zip -r 3d-web-scene-performance.zip 3d-web-scene-performance/
 ```
 
-The upload accepts a zip with exactly one `SKILL.md`, and the skill directory
-has one. The skill is plain Markdown with no scripts or binaries, so it also
-passes the text-only check that enterprise organisation uploads apply.
+The zip must contain exactly one `SKILL.md`. The skill is plain Markdown, so
+enterprise organisations can upload it too.
 
 ### Any other agent
 
-If your tool has no skills support, it almost certainly reads
-[AGENTS.md](https://agents.md). Copy [`AGENTS.md`](AGENTS.md) to your repo root.
-It has the rules in short form. For the full detail, read the
-[references](3d-web-scene-performance/references/) directly, or vendor the skill
-directory into your repo so your agent can open them when it needs them.
+Most tools without skills support read [AGENTS.md](https://agents.md). Copy
+[`AGENTS.md`](AGENTS.md) to your repo root. It has a short version of the rules.
+For the full detail, copy the skill directory into your repo so your agent can
+open the [references](3d-web-scene-performance/references/) when it needs them.
 
-Aider loads extra files through `.aider.conf.yml`, so add `read: AGENTS.md`
-there. Continue loads rules from `.continue/rules/`.
+For Aider, add `read: AGENTS.md` to `.aider.conf.yml`. Continue reads rules from
+`.continue/rules/`.
 
 ## How it is laid out
 
-`3d-web-scene-performance/SKILL.md` is a 412-line spine with the nine rules, the
-decision tables and the budget arithmetic. Each of the seven files in
-`references/` covers one area in full, and an agent opens only the ones a task
-needs.
+`3d-web-scene-performance/SKILL.md` holds the nine rules, the decision tables and
+the frame time calculations in 412 lines. The seven files in `references/` each
+cover one topic in depth.
 
-A skill's body loads into context every time the skill triggers, so the spec
-recommends keeping it under 500 lines and loading detail on demand. The
-references hold about 2,500 lines, and none of it uses context until an agent
-opens it.
+An agent reads `SKILL.md` every time it uses the skill, so the spec asks for it
+to stay under 500 lines. The references add about 2,500 lines, and the agent
+reads each one only when a task needs it.
 
 ## Contributing
 
-Issues and pull requests are welcome. CI runs `tools/validate.mjs`, which checks
-frontmatter against the published spec, checks cross-file links, and confirms
-that the skill directory holds exactly one `SKILL.md`. Run it before you open a
-PR:
+Issues and pull requests are welcome. Run the validator before you open a PR.
+It checks the skill's frontmatter, the links between files, and that there is
+exactly one `SKILL.md`. CI runs it too.
 
 ```bash
 node tools/validate.mjs
