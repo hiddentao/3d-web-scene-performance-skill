@@ -117,18 +117,17 @@ own vertex pipeline. There are two orders, and they are both defensible:
 - **The engine first.** Instancing and skinning are already applied, and you are
   handed the result to read and replace.
 
-Both work. The difference is which space your displacement is written in, and
+Both work. What they change is the space your displacement is written in, and
 the engine does not tell you which one you are in. A sway written to bend a leaf
 about its own stem, under the first order, bends it about the whole tree under
 the second: the amplitude was the vertex's own height, and now it is the
-instance's. Nothing throws, no shader fails to compile, and the frame rate does
-not move. You find it by looking at the scene.
+instance's. The shader still compiles and the frame rate does not move, so the
+rendered scene is the only place the change shows.
 
-**This is the answer most likely to change under you**, because it is a change
-an engine can make without breaking a single API. Treat a version bump as a
-reason to re-probe it, not as a reason to trust the release notes: a project
-that moves its vertex hook is usually motivated by skinning or morphing, and
-will describe the change in those terms even though it moved instancing too.
+An engine can reorder this without breaking a single API, which is why a version
+bump is a reason to re-probe it rather than to read the release notes. A project
+that moves its vertex hook is usually doing it for skinning or morphing, and
+will describe the change in those terms even when it moved instancing too.
 
 The probe needs no GPU, because the answer is in the generated source:
 
@@ -142,34 +141,33 @@ source = generateVertexShader(object)      # every engine can emit this
 assert(source.indexOf(instanceTransform) < source.indexOf(CONSTANT))
 ```
 
-Run it against the version you have and the version you are moving to. Two
-source dumps side by side answer it in a minute, and there is no other honest
-way to get the answer.
+Run it against the version you have and the version you are moving to, and read
+the two dumps side by side.
 
 ##### Writing a displacement that survives the answer
 
 Whichever order you are in, one of the two vertices you need is missing, so ask
 for it by name rather than taking whatever the position variable holds:
 
-- Write the **shape** of the displacement from the geometry's own vertex. Most
+- **The shape of the displacement** comes from the geometry's own vertex. Most
   engines expose it separately from the working position, precisely because the
   working position moves.
-- Put the **result** back into the space the engine expects next. Under the
+- **The result** goes back into the space the engine expects next. Under the
   second order that means applying the instance transform's linear part to your
   offset yourself, which is `transformed + M'o` for the offset `o`: the
   translation column is dropped, so the offset is rotated and scaled into the
   instance without being moved to it.
 
 That second step needs the instance transform, and an engine that applies it for
-you has no reason to expose it. Read the cost before you reach for it: rebuilding
-it as a vertex attribute can mean a second copy of every matrix, which on a batch
-of a few hundred thousand instances is tens of megabytes. Measure the
+you has no reason to expose it. Read the cost before you reach for it:
+rebuilding it as a vertex attribute can mean a second copy of every matrix,
+which on a batch of a few hundred thousand instances is tens of megabytes. Measure the
 displacement first, and drop it where it is smaller than a pixel.
 
-The same reordering can also **remove** work. A displacement field defined in
-world space wants the transformed vertex, not the geometry's: under the second
-order it is one matrix out and its inverse back, and the code that used to
-rebuild the instance transform to get there deletes.
+The reordering can also remove work. A displacement field defined in world space
+wants the transformed vertex, not the geometry's: under the second order it is
+one matrix out and its inverse back, and the code that used to rebuild the
+instance transform to get there deletes.
 
 #### Render bundles
 
@@ -252,9 +250,9 @@ makes and ask whether the slow backend has it at all.
 
 #### The seven questions, answered once
 
-[SKILL.md](../SKILL.md#seven-questions-to-ask-of-any-engine) asks seven questions
-of any engine. Here is what the answers tend to look like, and what each one costs
-you if you assume wrongly. Re-probe them: engines change, and these are patterns,
+[SKILL.md](../SKILL.md#seven-questions-to-ask-of-any-engine) asks seven
+questions of any engine. Here is what the answers tend to look like, and what
+each one costs you if you assume wrongly. Re-probe them: engines change, and these are patterns,
 not constants.
 
 | Question | Common answer | Cost of assuming wrongly |
@@ -269,17 +267,17 @@ not constants.
 
 The two that bite hardest are the first and the sixth, and they are the same
 question asked twice. An engine decides what counts as "the same object", and
-everything you can reuse follows from that decision. The seventh is the one
-that gets past a green test suite, because its symptom is a picture.
+everything you can reuse follows from that decision. The seventh leaves a test
+suite green, because its symptom is in the rendered frame.
 
 ##### A harness for all seven
 
-`tools/probe-engine.mjs` in this skill runs them and prints one line each. The
-harness is engine-agnostic and reads its answers through a small adapter;
+`tools/probe-engine.mjs` in this skill asks them and prints one line each. It is
+engine-agnostic and reads its answers through a small adapter;
 `tools/adapters/three.mjs` is a worked one, and writing a second is most of the
-porting exercise this section describes. Run it before and after an engine
-upgrade and diff the two outputs. That is the whole point: none of these
-answers is stable, and each one moves in silence.
+porting exercise this section describes. Compare its output before and after an
+engine upgrade. None of these answers holds still, and an engine that changes
+one rarely says so.
 
 ##### Worked example
 
@@ -301,7 +299,7 @@ held. Of the three, one was in the migration notes.
 
 Moved:
 
-- The GPU completion call had been **removed** from the engine's public surface,
+- The GPU completion call had been removed from the engine's public surface,
   on the argument that it was documented as a synchronisation primitive and was
   not one. It was still the right measurement for backpressure and for the
   completion rate, so the scene kept the measurement and now owns one call per

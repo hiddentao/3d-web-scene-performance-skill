@@ -27,7 +27,7 @@ only the references the task needs.
 | --- | --- | --- |
 | [device-tiers](references/device-tiers.md) | deciding what each device gets, choosing a value for a knob (one device setting), or adding distance LOD | 490 |
 | [frame-budget](references/frame-budget.md) | reaching or keeping a frame rate, or counting what a frame costs | 422 |
-| [engine-internals](references/engine-internals.md) | asking what your engine caches, why a shared material still rebuilds, where your own vertex code runs inside the engine's, or whether render bundles will help | 333 |
+| [engine-internals](references/engine-internals.md) | asking what your engine caches, why a shared material still rebuilds, where your own vertex code runs inside the engine's, or whether render bundles will help | 331 |
 | [startup](references/startup.md) | shortening the time to first render, or moving work off the main thread | 473 |
 | [loading-ui](references/loading-ui.md) | deciding what the visitor sees before the scene appears | 280 |
 | [persistence](references/persistence.md) | making a second visit fast, or keeping the scene through navigation and crashes | 308 |
@@ -169,11 +169,11 @@ to do with the answers.
    [probe it](references/engine-internals.md#static-flags-and-refresh-observers)
    rather than trusting it.
 7. **When does your own vertex code run?** An engine gives you a hook to move a
-   vertex. It can call that hook on the geometry's own vertex and apply its
+   vertex. It can call that hook on the geometry's own vertex and apply its own
    transforms after, or apply them first and hand you the result. This decides
-   which space your displacement is written in, and it is the one answer on
-   this list that changes silently: nothing fails, the object simply bends
-   about the wrong origin. See
+   which space your displacement is written in. An engine can swap the order
+   without breaking an API, so nothing fails when it does: the shader compiles
+   and the object bends about the wrong origin. See
    [when your vertex hook runs](references/engine-internals.md#when-your-vertex-hook-runs).
 
 ### Measure the answers

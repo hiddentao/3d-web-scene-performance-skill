@@ -4,10 +4,10 @@
  *
  *   node probe-engine.mjs [adapter] [--json]
  *
- * The adapter defaults to `./adapters/three.mjs`. Run this before and after an
- * engine upgrade and diff the two outputs, because none of these answers is
- * stable and every one of them moves in silence: the scene keeps rendering and
- * simply costs more, or bends a leaf about the wrong origin.
+ * The adapter defaults to `./adapters/three.mjs`. Compare the output before and
+ * after an engine upgrade. None of these answers holds still, and an engine
+ * that changes one rarely says so, because nothing breaks: the scene keeps
+ * rendering and costs more, or it bends a leaf about the wrong origin.
  *
  * ## Writing an adapter
  *
@@ -15,19 +15,17 @@
  * string and one method per question it can answer. Each method returns
  * `{ answer, note }`, or throws to report that this engine cannot be asked
  * that way. Leave a method out and the question prints as unanswered, which is
- * an honest result: a question you did not measure is not a question you know
- * the answer to.
+ * the right output for a question nobody measured.
  *
  *   export default {
  *     engine: "my-engine@1.2.3",
  *     pipelineBuildKey() { return { answer: "material only", note: "..." }; },
  *   }
  *
- * Two of the seven have no general mechanical answer and say so rather than
- * guessing: how many times a frame traverses your scene is a property of the
- * scene, not the engine, and what the engine batches for you is usually a
- * documented promise rather than something a probe can see. The harness prints
- * what to count instead.
+ * Two of the seven have no general mechanical answer, so they say so. How many
+ * times a frame traverses your scene is a property of the scene. What an engine
+ * batches for you is usually a documented promise that a probe cannot see. For
+ * those two the harness prints the measurement to go and take.
  */
 import { resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";

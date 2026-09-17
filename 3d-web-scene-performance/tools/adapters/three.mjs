@@ -11,9 +11,9 @@
  * and they are the ones to re-read by hand if they ever disagree with what
  * your scene is doing.
  *
- * Treat this file as a template. A second adapter is most of the work of
- * carrying this skill to another engine, and writing one tells you more about
- * that engine than any amount of reading.
+ * Treat this file as a template. Writing a second adapter is most of the work
+ * of carrying this skill to another engine, and it is a faster way to learn how
+ * that engine behaves than reading its documentation.
  */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -67,7 +67,7 @@ export default {
         ? "material, geometry and object identity for instanced draws"
         : "no per-object identity found in the render object cache key",
       note: identity
-        ? "source: every instanced mesh builds its own shaders in every pass, however many of them share one material. Merge small static pieces into one plain mesh per material; instancing then saves draw calls and not builds."
+        ? "source: every instanced mesh builds its own shaders in every pass, however many of them share one material. Merge small static pieces into one plain mesh per material; instancing then saves draw calls only."
         : "source: the trap this skill describes may have been closed, or the key may have moved. Confirm by counting shader builds for N instanced meshes sharing one material before you rely on it.",
     };
   },

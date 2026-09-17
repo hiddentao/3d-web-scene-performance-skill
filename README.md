@@ -132,10 +132,11 @@ For Aider, add `read: AGENTS.md` to `.aider.conf.yml`. Continue reads rules from
 
 ## Asking your own engine
 
-Seven of these rules depend on how one engine batches, caches, compiles and
-transforms. Those answers move between releases, and they move in silence: the
-scene keeps rendering and simply costs more, or bends a leaf about the wrong
-origin. So the skill ships a script that asks them:
+The rules work with any engine. How you apply them depends on seven questions
+about the engine itself, and those answers move between releases. An engine that
+changes one rarely says so, because nothing breaks: the scene keeps rendering
+and costs more, or it bends a leaf about the wrong origin. So the skill ships a
+script that asks them:
 
 ```bash
 node 3d-web-scene-performance/tools/probe-engine.mjs
@@ -143,10 +144,10 @@ node 3d-web-scene-performance/tools/probe-engine.mjs
 
 Run it from the project that has the engine installed. It reads through a small
 adapter, and `tools/adapters/three.mjs` is a worked one; writing a second is
-most of the work of carrying this skill to another engine. Run it before and
-after an upgrade and diff the two outputs. Carried across six Three.js releases
-in 2026, that diff caught a vertex hook that had moved to run after instancing,
-and a GPU completion call that had been withdrawn.
+most of the work of carrying this skill to another engine. Compare the output
+before and after an upgrade. Across six Three.js releases in 2026 that
+comparison caught a vertex hook that had moved to run after instancing, and a
+GPU completion call that had been withdrawn.
 
 ## How it is laid out
 
@@ -160,9 +161,19 @@ reads each one only when a task needs it.
 
 ## Contributing
 
-Issues and pull requests are welcome. Run the validator before you open a PR.
-It checks the skill's frontmatter, the links between files, and that there is
-exactly one `SKILL.md`. CI runs it too.
+Issues and pull requests are welcome.
+
+The writing is the product here, so put new or reworded prose through the
+`humanizer` skill before you commit it. That covers the rules, the reference
+sections, this README, commit messages and pull request descriptions. It works
+from Wikipedia's
+["Signs of AI writing"](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing),
+which is worth reading whether or not your tool can run the skill.
+[AGENTS.md](AGENTS.md#editing-this-skill) says what it catches.
+
+Then run the validator. It checks the skill's frontmatter, the links between
+files, the ban on em and en dashes, and that there is exactly one `SKILL.md`.
+CI runs it too.
 
 ```bash
 node tools/validate.mjs
