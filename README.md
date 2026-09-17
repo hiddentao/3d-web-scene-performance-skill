@@ -152,7 +152,7 @@ GPU completion call that had been withdrawn.
 ## How it is laid out
 
 `3d-web-scene-performance/SKILL.md` holds the nine rules, the decision tables and
-the frame time calculations in 455 lines. The eight files in `references/` each
+the frame time calculations in 457 lines. The eight files in `references/` each
 cover one topic in depth, and `tools/` holds the probe script and its adapter.
 
 An agent reads `SKILL.md` every time it uses the skill, so the spec asks for it

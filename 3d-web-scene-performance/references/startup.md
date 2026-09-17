@@ -345,6 +345,19 @@ property. Find out which property (question 6 in
 and do not touch it on the reuse path. This one check usually decides whether reuse
 saves work or silently rebuilds everything anyway.
 
+Question 7 costs you uploads rather than rebuilds. If a material's vertex hook
+has to rebuild a transform the engine has already applied, it binds that data a
+second time: an instance matrix reconstructed as a vertex attribute is another
+buffer per batch, uploaded during the build and held for the life of the scene.
+Sixteen floats an instance is nothing on a few hundred instances and tens of
+megabytes on a few hundred thousand. Which way the engine orders its vertex
+stage decides whether you pay it at all, so read
+[when your vertex hook runs](engine-internals.md#when-your-vertex-hook-runs)
+before you plan the build around it. Where you do pay, measure the displacement
+first: one on the hezo.ai scene moved a leaf by a twentieth of its own length,
+on geometry drawn a few pixels tall, and dropping it took the binding off the
+largest batch in the scene.
+
 A common mistake in progressive loading is to rebuild all accumulated batches at
 every stage. With five stages, the first stage's geometry is built five times and
 uploaded five times.

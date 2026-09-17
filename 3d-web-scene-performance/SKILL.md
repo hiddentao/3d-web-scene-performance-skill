@@ -25,10 +25,10 @@ only the references the task needs.
 
 | Reference | Open it when you are | Lines |
 | --- | --- | --- |
-| [device-tiers](references/device-tiers.md) | deciding what each device gets, choosing a value for a knob (one device setting), or adding distance LOD | 490 |
-| [frame-budget](references/frame-budget.md) | reaching or keeping a frame rate, or counting what a frame costs | 422 |
+| [device-tiers](references/device-tiers.md) | deciding what each device gets, choosing a value for a knob (one device setting), or adding distance LOD | 503 |
+| [frame-budget](references/frame-budget.md) | reaching or keeping a frame rate, or counting what a frame costs | 452 |
 | [engine-internals](references/engine-internals.md) | asking what your engine caches, why a shared material still rebuilds, where your own vertex code runs inside the engine's, or whether render bundles will help | 331 |
-| [startup](references/startup.md) | shortening the time to first render, or moving work off the main thread | 473 |
+| [startup](references/startup.md) | shortening the time to first render, or moving work off the main thread | 486 |
 | [loading-ui](references/loading-ui.md) | deciding what the visitor sees before the scene appears | 280 |
 | [persistence](references/persistence.md) | making a second visit fast, or keeping the scene through navigation and crashes | 308 |
 | [interaction](references/interaction.md) | driving the camera from scroll, picking objects, or degrading gracefully | 429 |
@@ -273,7 +273,7 @@ you rely on it.
 | Knob | Adapt live? | Why |
 | --- | --- | --- |
 | Render resolution / pixel ratio | Yes | Cheapest knob, with the largest effect, and it changes smoothly |
-| Post-effect sample counts | Yes | A uniform, so nothing is reallocated |
+| Post-effect sample counts | Only while it stays a uniform | An engine can bake a sample count into the generated shader to unroll its loops, and writing it is then a pipeline build |
 | Offscreen target scale (AO, reflection) | Yes | Reallocation is routine and tested |
 | Shadow map dimensions | No | Resizing the attachment during rendering caused lasting black frames on WebGPU |
 | Geometry density, instance counts | No | Rebuilding geometry during a scroll costs more than the frames it saves |
@@ -282,7 +282,9 @@ you rely on it.
 
 As a rule of thumb, adapt anything that is a number in a uniform or a
 render-target size. Fix anything that is a buffer, a pipeline or the shape of
-the scene graph.
+the scene graph. Check which side a knob is on rather than assuming, because an
+engine can move one: generate the shader twice with the knob at two values and
+compare the text.
 
 The first row has a limit. The ladder (the fixed order of quality steps that
 adaptive quality moves through at runtime) changes resolution *only within the

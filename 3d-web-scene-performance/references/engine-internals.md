@@ -161,8 +161,8 @@ for it by name rather than taking whatever the position variable holds:
 That second step needs the instance transform, and an engine that applies it for
 you has no reason to expose it. Read the cost before you reach for it:
 rebuilding it as a vertex attribute can mean a second copy of every matrix,
-which on a batch of a few hundred thousand instances is tens of megabytes. Measure the
-displacement first, and drop it where it is smaller than a pixel.
+which on a batch of a few hundred thousand instances is tens of megabytes.
+Measure the displacement first, and drop it where it is smaller than a pixel.
 
 The reordering can also remove work. A displacement field defined in world space
 wants the transformed vertex, not the geometry's: under the second order it is
@@ -252,8 +252,8 @@ makes and ask whether the slow backend has it at all.
 
 [SKILL.md](../SKILL.md#seven-questions-to-ask-of-any-engine) asks seven
 questions of any engine. Here is what the answers tend to look like, and what
-each one costs you if you assume wrongly. Re-probe them: engines change, and these are patterns,
-not constants.
+each one costs you if you assume wrongly. Re-probe them: engines change, and
+these are patterns, not constants.
 
 | Question | Common answer | Cost of assuming wrongly |
 | --- | --- | --- |

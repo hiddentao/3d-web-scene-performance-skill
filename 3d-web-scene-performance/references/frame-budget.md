@@ -17,7 +17,7 @@ Track two rates and adapt to the lower one:
 onSubmit:
   submittedAt = now()
   inFlight += 1
-  renderer.waitForGPU().then(() => {
+  awaitGpuCompletion().then(() => {
     inFlight -= 1
     if (generation !== currentGeneration) return       // a reset happened while we waited
     completedFrames += 1
@@ -38,6 +38,33 @@ the frame counter changes.
 
 If your engine has no completion promise, approximate one with a GPU timestamp
 query or with the resolution of a fence. Do not fall back to counting callbacks.
+
+##### Own the completion call
+
+`awaitGpuCompletion` above is deliberately not an engine method. An engine may
+never have offered one, and an engine that does offer one may take it away: one
+withdrew its version in 2025 on the argument that it was documented as a
+synchronisation primitive and was not one. That argument is right and it does
+not reach this code, because neither question here is about ordering. Both ask
+whether the work already submitted has finished, which is exactly what the
+underlying calls report.
+
+So keep your own, with one implementation per backend:
+
+- The newer graphics API has a queue promise that resolves when submitted work
+  completes. That one is a single call.
+- The older one has a fence: place it, flush, then poll until it signals.
+- A backend that offers neither resolves at once, which turns the completed
+  rate back into the submitted rate without saying so. Publish which signal you
+  got alongside the rates, so a number that is really a submission count is
+  labelled as one.
+
+Two details decide whether this works where your scene actually runs. Poll the
+fence without assuming a global animation-frame callback, because a worker has
+none and an engine's own implementation usually assumes one. And resolve rather
+than reject when a fence fails: the caller's next frame is worth more than an
+unhandled rejection, and the backpressure counter has to come back down either
+way.
 
 ##### Summed pass timings are not frame times
 
@@ -91,8 +118,11 @@ was half a second ago.
 
 The adaptive ladder is a fixed sequence of quality steps. When the frame rate is
 too low, the renderer moves down one step per sampling window. When the rate
-recovers, it moves back up. Keep the authored scene intact: the steps change only
-buffer resolution and sample counts, in a fixed order.
+recovers, it moves back up. Keep the authored scene intact: the steps change
+only buffer resolution and render-target scales, in a fixed order. A step that
+rebuilds a pipeline does not belong on the ladder, so confirm that each knob on
+it is still a uniform or a target size before you put it there. See
+[ladder knobs](device-tiers.md#ladder-knobs).
 
 **Derive the thresholds from the display, not from 60.** Many phones, tablets and
 monitors run at 90, 120 or 144 Hz. A hard-coded 58 compares such a device with the
@@ -322,7 +352,7 @@ frame stalls on a compile:
 ```
 await renderer.compileAsync(scene, camera)
 renderOneFrame()
-await renderer.waitForGPU()
+await awaitGpuCompletion()
 ```
 
 ##### Keep the light count stable
