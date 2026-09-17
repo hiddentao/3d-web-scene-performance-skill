@@ -264,10 +264,19 @@ Cheap savings of this kind:
 In the hezo.ai scene, shader assembly in JavaScript was the largest startup cost.
 It cost more than geometry generation and more than texture painting.
 
-The cause, in Three r180 and engines that behave like it: every instanced mesh's
-uuid is part of the render cache key. So each instanced mesh assembles its own node
-shaders in every pass (main, shadow, depth-normal, preview). Plain meshes that
-share a material and attribute layout share one build.
+The cause is a cache key, and it is worth stating as a rule because it is not
+specific to one engine: **when a per-object identity is part of the shader or
+pipeline cache key, sharing a material stops sharing the shader build.** An
+engine that keys this way makes every instanced mesh assemble its own shaders in
+every pass (main, shadow, depth-normal, preview), even when all of them use one
+material. Plain meshes that share a material and attribute layout share one
+build.
+
+So the count that drives this cost is the number of **objects**, not the number
+of instances. One mesh holding ten thousand instances is one build. Ten meshes
+holding a thousand each are ten. Confirm which your engine does before you act
+on it, with the probe in
+[the cache key trap](engine-internals.md#the-cache-key-trap).
 
 So group placements by geometry and material:
 
@@ -298,6 +307,12 @@ once.
 
 Before you split instanced batches by zone, stage or variant, check whether a
 shared plain mesh or fewer batches would draw the same thing.
+
+Do not reach for an engine's "this object will not change" flag to avoid this.
+Such a flag is usually read late in the engine's per-object refresh check, after
+conditions that a shader-node material can make permanently true, so setting it
+can do nothing at all and report nothing. Measure it before you rely on it. See
+[static flags and refresh observers](engine-internals.md#static-flags-and-refresh-observers).
 
 ##### Precompile before you show
 

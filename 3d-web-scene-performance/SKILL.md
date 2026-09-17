@@ -26,7 +26,8 @@ only the references the task needs.
 | Reference | Open it when you are | Lines |
 | --- | --- | --- |
 | [device-tiers](references/device-tiers.md) | deciding what each device gets, choosing a value for a knob (one device setting), or adding distance LOD | 490 |
-| [frame-budget](references/frame-budget.md) | reaching or keeping a frame rate, or counting what a frame costs | 407 |
+| [frame-budget](references/frame-budget.md) | reaching or keeping a frame rate, or counting what a frame costs | 422 |
+| [engine-internals](references/engine-internals.md) | asking what your engine caches, why a shared material still rebuilds, or whether render bundles will help | 232 |
 | [startup](references/startup.md) | shortening the time to first render, or moving work off the main thread | 473 |
 | [loading-ui](references/loading-ui.md) | deciding what the visitor sees before the scene appears | 280 |
 | [persistence](references/persistence.md) | making a second visit fast, or keeping the scene through navigation and crashes | 308 |
@@ -124,13 +125,19 @@ Most of this skill is arithmetic and browser behaviour, which no engine changes.
 A few rules depend on how one engine batches, caches and compiles. Check those
 rules before you carry them to another engine, or they will mislead you.
 
-Do not assume another engine has the same costs as Three.js. In Three.js r180,
-an instanced mesh's identity is part of the render cache key, so each instanced
-mesh assembles its own shaders in every pass. That is true of one engine at one
-version. Another engine may key on the material alone, batch automatically,
-cache pipelines across meshes, or have an explicit pipeline object that you
-create yourself. If you apply the Three.js result to that engine, you will
-optimise something that is already free and miss what is not.
+Do not assume another engine has the same costs as the one you measured. The
+rule that travels is the mechanism: **when a per-object identity is part of a
+shader or pipeline cache key, sharing a material stops sharing the shader
+build.** An engine that does this rebuilds the shaders for every instanced mesh
+in every pass, even when they all use one material. One production Three.js
+scene, measured in 2025, hit exactly that. Another engine may key on the
+material alone, batch automatically, cache pipelines across meshes, or have an
+explicit pipeline object that you create yourself. If you carry one engine's
+result to another, you will optimise something that is already free and miss
+what is not.
+
+[engine-internals](references/engine-internals.md) covers the caches a renderer
+keeps, the ones it cannot keep, and a probe for each.
 
 ### Six questions to ask of any engine
 
@@ -139,7 +146,8 @@ to do with the answers.
 
 1. **What is a pipeline build keyed on?** Material? Material plus vertex layout?
    Per-object identity? This decides whether merging objects saves compile work
-   or only draw calls.
+   or only draw calls. See
+   [the cache key trap](references/engine-internals.md#the-cache-key-trap).
 2. **What does the engine batch automatically, and what must you batch?** Some
    engines merge static geometry for you. Some never do.
 3. **Which passes traverse the whole scene?** For example shadows, depth
@@ -151,7 +159,10 @@ to do with the answers.
    timestamp query. Without one, you cannot measure frame rate accurately.
 6. **What identity must stay stable for an object to be reused?** This decides
    whether you can share constructed objects across build phases, and what
-   counts as "unchanged".
+   counts as "unchanged". An engine's "this object is static" flag may not apply
+   to your material type, so
+   [probe it](references/engine-internals.md#static-flags-and-refresh-observers)
+   rather than trusting it.
 
 ### Measure the answers
 

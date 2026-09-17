@@ -5,7 +5,7 @@ scroll-driven 3D scene on the hezo.ai homepage.
 
 This file is for agents without Agent Skills support. If your tool supports
 skills, install the `3d-web-scene-performance/` directory instead. It has the full
-detail in seven reference files, and the agent reads each one only when a task
+detail in eight reference files, and the agent reads each one only when a task
 needs it.
 
 ## The rules
