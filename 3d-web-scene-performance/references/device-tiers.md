@@ -57,9 +57,22 @@ code that changes quality while the scene runs) can then read the row by level
 index, and does not branch on device a second time:
 
 ```
-ao:         [16, 8, 6],       // sample count at quality level 0 / 1 / 2
-reflection: [.5, .35, .25],   // reflection target scale at each level
+reflection: [.5, .35, .25],   // reflection target scale at quality level 0 / 1 / 2
+aoScale:    [.5, .4, .33],    // ambient occlusion target scale at each level
 ```
+
+A knob belongs on the ladder only if the engine can change it without
+rebuilding anything. Generate the shader twice with the knob at two values and
+compare the text. If the source differs, the knob is a shader constant and
+writing it costs a pipeline build.
+
+The ambient occlusion sample count is the one to watch, because it moved. It
+was a uniform, so it sat on the ladder for years. Then an engine release began
+unrolling the sampling loops around it, which put it in the generated source,
+and every step of the ladder became a compile in the middle of a scroll, on a
+device that had stepped down because it was already missing frames. It is a
+per-row value now, beside `shadowMap`, and the ladder moves the ambient
+occlusion target scale instead.
 
 #### Choosing the row
 

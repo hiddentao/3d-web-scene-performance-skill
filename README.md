@@ -25,11 +25,11 @@ builds the scene in stages, caches generated data between visits, and lowers
 quality when the frame rate drops. This skill explains how to build a scene that
 way.
 
-It gives an agent nine rules and eight reference files. The references cover
-device settings, frame timing, what a rendering engine caches, startup speed,
-loading screens, caching and page navigation, user input, and measuring
-performance. The rules work with any 3D
-engine. The examples and measured numbers come from the hezo.ai scene.
+It gives an agent nine rules, eight reference files and one probe script. The
+references cover device settings, frame timing, what a rendering engine caches,
+startup speed, loading screens, caching and page navigation, user input, and
+measuring performance. The rules work with any 3D engine. The examples and
+measured numbers come from the hezo.ai scene.
 
 ## The nine rules
 
@@ -130,21 +130,50 @@ open the [references](3d-web-scene-performance/references/) when it needs them.
 For Aider, add `read: AGENTS.md` to `.aider.conf.yml`. Continue reads rules from
 `.continue/rules/`.
 
+## Asking your own engine
+
+The rules work with any engine. How you apply them depends on seven questions
+about the engine itself, and those answers move between releases. An engine that
+changes one rarely says so, because nothing breaks: the scene keeps rendering
+and costs more, or it bends a leaf about the wrong origin. So the skill ships a
+script that asks them:
+
+```bash
+node 3d-web-scene-performance/tools/probe-engine.mjs
+```
+
+Run it from the project that has the engine installed. It reads through a small
+adapter, and `tools/adapters/three.mjs` is a worked one; writing a second is
+most of the work of carrying this skill to another engine. Compare the output
+before and after an upgrade. Across six Three.js releases in 2026 that
+comparison caught a vertex hook that had moved to run after instancing, and a
+GPU completion call that had been withdrawn.
+
 ## How it is laid out
 
 `3d-web-scene-performance/SKILL.md` holds the nine rules, the decision tables and
-the frame time calculations in 437 lines. The eight files in `references/` each
-cover one topic in depth.
+the frame time calculations in 457 lines. The eight files in `references/` each
+cover one topic in depth, and `tools/` holds the probe script and its adapter.
 
 An agent reads `SKILL.md` every time it uses the skill, so the spec asks for it
-to stay under 500 lines. The references add about 2,900 lines, and the agent
+to stay under 500 lines. The references add about 3,000 lines, and the agent
 reads each one only when a task needs it.
 
 ## Contributing
 
-Issues and pull requests are welcome. Run the validator before you open a PR.
-It checks the skill's frontmatter, the links between files, and that there is
-exactly one `SKILL.md`. CI runs it too.
+Issues and pull requests are welcome.
+
+The writing is the product here, so put new or reworded prose through the
+`humanizer` skill before you commit it. That covers the rules, the reference
+sections, this README, commit messages and pull request descriptions. It works
+from Wikipedia's
+["Signs of AI writing"](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing),
+which is worth reading whether or not your tool can run the skill.
+[AGENTS.md](AGENTS.md#editing-this-skill) says what it catches.
+
+Then run the validator. It checks the skill's frontmatter, the links between
+files, the ban on em and en dashes, and that there is exactly one `SKILL.md`.
+CI runs it too.
 
 ```bash
 node tools/validate.mjs

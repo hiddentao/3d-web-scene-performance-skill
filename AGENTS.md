@@ -62,3 +62,25 @@ time, because two copies rendering at once make the numbers useless.
 Measure the values for your own scene, such as camera paths and quality settings.
 Decide product questions yourself, such as which devices get the scene. Look at
 rendered frames to find visual defects, and test each rule on your own scene.
+
+## Editing this skill
+
+This section is about the skill itself. Skip it if you copied this file into
+your own repository: the rules above are the part that travels.
+
+Everything here is prose an agent reads and acts on, so the writing is the
+product. Put new or reworded text through the `humanizer` skill before you
+commit it, and treat that as covering the rules, the reference sections, the
+README, commit messages and pull request descriptions. If your tool cannot run
+the skill, work from Wikipedia's "Signs of AI writing", which is what it is
+based on. It catches what the validator cannot see: a point staged instead of
+stated, a list padded out to three items, a claim inflated past what was
+measured, or a ranking nothing in the text supports. A reference that reads like
+a sales page is a reference an agent will summarise back at you.
+
+Then run the validator, which checks the frontmatter, the links between files,
+the ban on em and en dashes, and that there is exactly one `SKILL.md`:
+
+```bash
+node tools/validate.mjs
+```
