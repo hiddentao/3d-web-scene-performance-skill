@@ -5,7 +5,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 const SKILL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../3d-web-scene-performance");
-const ORDER = ["device-tiers", "frame-budget", "startup",
+const ORDER = ["device-tiers", "frame-budget", "engine-internals", "startup",
                "loading-ui", "persistence", "interaction", "verification"];
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
