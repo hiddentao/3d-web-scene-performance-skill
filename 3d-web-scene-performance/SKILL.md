@@ -27,12 +27,17 @@ only the references the task needs.
 | --- | --- | --- |
 | [device-tiers](references/device-tiers.md) | deciding what each device gets, choosing a value for a knob (one device setting), or adding distance LOD | 490 |
 | [frame-budget](references/frame-budget.md) | reaching or keeping a frame rate, or counting what a frame costs | 422 |
-| [engine-internals](references/engine-internals.md) | asking what your engine caches, why a shared material still rebuilds, or whether render bundles will help | 232 |
+| [engine-internals](references/engine-internals.md) | asking what your engine caches, why a shared material still rebuilds, where your own vertex code runs inside the engine's, or whether render bundles will help | 333 |
 | [startup](references/startup.md) | shortening the time to first render, or moving work off the main thread | 473 |
 | [loading-ui](references/loading-ui.md) | deciding what the visitor sees before the scene appears | 280 |
 | [persistence](references/persistence.md) | making a second visit fast, or keeping the scene through navigation and crashes | 308 |
 | [interaction](references/interaction.md) | driving the camera from scroll, picking objects, or degrading gracefully | 429 |
 | [verification](references/verification.md) | about to measure something or report a number | 246 |
+
+`tools/probe-engine.mjs` beside them asks
+[the seven questions](#seven-questions-to-ask-of-any-engine) of the engine you
+have installed and prints one line each, through a small adapter per engine.
+Run it before and after an upgrade and diff the two outputs.
 
 Read [verification](references/verification.md) before you report any
 performance number. Most 3D performance numbers are measured wrong, and a wrong
@@ -139,7 +144,7 @@ what is not.
 [engine-internals](references/engine-internals.md) covers the caches a renderer
 keeps, the ones it cannot keep, and a probe for each.
 
-### Six questions to ask of any engine
+### Seven questions to ask of any engine
 
 Answer these before you optimise anything. The rest of this skill tells you what
 to do with the answers.
@@ -163,6 +168,13 @@ to do with the answers.
    to your material type, so
    [probe it](references/engine-internals.md#static-flags-and-refresh-observers)
    rather than trusting it.
+7. **When does your own vertex code run?** An engine gives you a hook to move a
+   vertex. It can call that hook on the geometry's own vertex and apply its
+   transforms after, or apply them first and hand you the result. This decides
+   which space your displacement is written in, and it is the one answer on
+   this list that changes silently: nothing fails, the object simply bends
+   about the wrong origin. See
+   [when your vertex hook runs](references/engine-internals.md#when-your-vertex-hook-runs).
 
 ### Measure the answers
 
@@ -192,6 +204,11 @@ If they never diverge under load, your signal is not measuring completion.
 # 6: what makes the engine rebuild?
 mutate one property at a time on a constructed object and watch for a
 recompile or a buffer reupload.
+
+# 7: when does your vertex hook run?
+give one object a vertex hook that adds a constant, generate the shader
+source for it, and read the order of the emitted statements. The engine's
+own transform is either above your line or below it.
 ```
 
 A morning spent on these probes tells you more than any generic advice.
@@ -219,7 +236,8 @@ hardware decides them:
   [verification](references/verification.md).
 
 The engine-specific part is smaller than it looks: how you batch, how you
-compile, how you signal completion, and what counts as an unchanged object.
+compile, how you signal completion, what counts as an unchanged object, and
+when your own vertex code runs inside the engine's.
 
 ## What to work out for your own scene
 

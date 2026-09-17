@@ -107,6 +107,70 @@ materials it covers, and the same engine can change across versions.
 The same probe, run against a material with no custom shader nodes and again
 against one with them, tells you the precondition.
 
+#### When your vertex hook runs
+
+An engine that lets you move a vertex has to decide where your code sits in its
+own vertex pipeline. There are two orders, and they are both defensible:
+
+- **Your hook first.** You are handed the geometry's own vertex, and the engine
+  applies instancing, skinning and morphing to whatever you return.
+- **The engine first.** Instancing and skinning are already applied, and you are
+  handed the result to read and replace.
+
+Both work. The difference is which space your displacement is written in, and
+the engine does not tell you which one you are in. A sway written to bend a leaf
+about its own stem, under the first order, bends it about the whole tree under
+the second: the amplitude was the vertex's own height, and now it is the
+instance's. Nothing throws, no shader fails to compile, and the frame rate does
+not move. You find it by looking at the scene.
+
+**This is the answer most likely to change under you**, because it is a change
+an engine can make without breaking a single API. Treat a version bump as a
+reason to re-probe it, not as a reason to trust the release notes: a project
+that moves its vertex hook is usually motivated by skinning or morphing, and
+will describe the change in those terms even though it moved instancing too.
+
+The probe needs no GPU, because the answer is in the generated source:
+
+```
+# Where does the engine's own transform sit?
+material.vertexHook = (vertex) => vertex + CONSTANT
+object = makeInstanced(geometry, material, 4)
+source = generateVertexShader(object)      # every engine can emit this
+
+# read the order of the two assignments to the position variable
+assert(source.indexOf(instanceTransform) < source.indexOf(CONSTANT))
+```
+
+Run it against the version you have and the version you are moving to. Two
+source dumps side by side answer it in a minute, and there is no other honest
+way to get the answer.
+
+##### Writing a displacement that survives the answer
+
+Whichever order you are in, one of the two vertices you need is missing, so ask
+for it by name rather than taking whatever the position variable holds:
+
+- Write the **shape** of the displacement from the geometry's own vertex. Most
+  engines expose it separately from the working position, precisely because the
+  working position moves.
+- Put the **result** back into the space the engine expects next. Under the
+  second order that means applying the instance transform's linear part to your
+  offset yourself, which is `transformed + M'o` for the offset `o`: the
+  translation column is dropped, so the offset is rotated and scaled into the
+  instance without being moved to it.
+
+That second step needs the instance transform, and an engine that applies it for
+you has no reason to expose it. Read the cost before you reach for it: rebuilding
+it as a vertex attribute can mean a second copy of every matrix, which on a batch
+of a few hundred thousand instances is tens of megabytes. Measure the
+displacement first, and drop it where it is smaller than a pixel.
+
+The same reordering can also **remove** work. A displacement field defined in
+world space wants the transformed vertex, not the geometry's: under the second
+order it is one matrix out and its inverse back, and the code that used to
+rebuild the instance transform to get there deletes.
+
 #### Render bundles
 
 A render bundle records a sequence of draw commands once and replays it. It saves
@@ -186,10 +250,10 @@ Before you attribute a backend difference to the engine, check whether the two
 backends have the same feature. The probe is to find the call the fast backend
 makes and ask whether the slow backend has it at all.
 
-#### The six questions, answered once
+#### The seven questions, answered once
 
-[SKILL.md](../SKILL.md#six-questions-to-ask-of-any-engine) asks six questions of
-any engine. Here is what the answers tend to look like, and what each one costs
+[SKILL.md](../SKILL.md#seven-questions-to-ask-of-any-engine) asks seven questions
+of any engine. Here is what the answers tend to look like, and what each one costs
 you if you assume wrongly. Re-probe them: engines change, and these are patterns,
 not constants.
 
@@ -201,10 +265,21 @@ not constants.
 | Is there an async compile? | usually yes, and usually not on by default | the first frame after each stage stalls |
 | Is there a GPU completion signal? | usually a timestamp query or a queue promise | you measure the callback rate and believe a number that is twice the truth |
 | What identity must stay stable? | the object, its material and its geometry, all three | a rebuild you did not ask for, at the worst moment |
+| When does your vertex hook run? | it varies, and it moves between versions | your displacement is written in the wrong space and nothing tells you |
 
-The two that bite hardest are the first and the last, and they are the same
+The two that bite hardest are the first and the sixth, and they are the same
 question asked twice. An engine decides what counts as "the same object", and
-everything you can reuse follows from that decision.
+everything you can reuse follows from that decision. The seventh is the one
+that gets past a green test suite, because its symptom is a picture.
+
+##### A harness for all seven
+
+`tools/probe-engine.mjs` in this skill runs them and prints one line each. The
+harness is engine-agnostic and reads its answers through a small adapter;
+`tools/adapters/three.mjs` is a worked one, and writing a second is most of the
+porting exercise this section describes. Run it before and after an engine
+upgrade and diff the two outputs. That is the whole point: none of these
+answers is stable, and each one moves in silence.
 
 ##### Worked example
 
@@ -219,6 +294,32 @@ The engine has since made each build several times cheaper. The key still
 contains the object identity. That is the pattern worth carrying: engines
 optimise the constant, and leave the multiplier where it is, because removing it
 changes their public behaviour.
+
+The same scene was carried across six releases of that engine in 2026, and the
+harness above is what that upgrade produced. Three answers had moved and two had
+held. Of the three, one was in the migration notes.
+
+Moved:
+
+- The GPU completion call had been **removed** from the engine's public surface,
+  on the argument that it was documented as a synchronisation primitive and was
+  not one. It was still the right measurement for backpressure and for the
+  completion rate, so the scene kept the measurement and now owns one call per
+  backend. This is the one the notes carried.
+- A knob had turned from a uniform into a shader constant, because the engine
+  started unrolling a loop around it. Writing it now rebuilt a material, so it
+  moved out of the runtime quality ladder and into the device table. Its own
+  API documentation said so in one line; the migration notes did not.
+- The vertex hook had moved to run after instancing. The notes described that
+  change for skinned meshes and did not mention instancing. It was found by
+  generating the same shader against both versions and reading the order.
+
+Held:
+
+- The cache key still carried object identity for instanced draws, so the
+  merge-over-instance architecture stood.
+- The static flag still had the same precondition, and the scene's own materials
+  still failed it, so it was still a dead end rather than an unused win.
 
 ##### Report it properly
 

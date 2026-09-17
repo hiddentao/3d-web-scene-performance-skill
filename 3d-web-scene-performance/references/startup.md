@@ -341,8 +341,8 @@ these are true:
 
 Your engine may rebuild a pipeline or reupload a buffer when you touch a certain
 property. Find out which property (question 6 in
-[the six engine questions](../SKILL.md#six-questions-to-ask-of-any-engine)), and
-do not touch it on the reuse path. This one check usually decides whether reuse
+[the seven engine questions](../SKILL.md#seven-questions-to-ask-of-any-engine)),
+and do not touch it on the reuse path. This one check usually decides whether reuse
 saves work or silently rebuilds everything anyway.
 
 A common mistake in progressive loading is to rebuild all accumulated batches at
