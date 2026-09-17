@@ -1,0 +1,37 @@
+{
+  "name": "3d-web-scene-performance-skill",
+  "owner": {
+    "name": "hiddentao",
+    "url": "https://github.com/hiddentao"
+  },
+  "description": "Performance, loading and degradation rules for real-time 3D scenes on web pages",
+  "plugins": [
+    {
+      "name": "3d-web-scene-performance",
+      "source": "./",
+      "description": "Build and review real-time 3D web scenes that hold 60 fps across devices, render quickly on slow connections, and degrade to a readable page.",
+      "version": "1.0.0",
+      "author": {
+        "name": "hiddentao",
+        "url": "https://github.com/hiddentao"
+      },
+      "homepage": "https://github.com/hiddentao/3d-web-scene-performance-skill",
+      "repository": "https://github.com/hiddentao/3d-web-scene-performance-skill",
+      "license": "MIT",
+      "category": "development",
+      "keywords": [
+        "3d",
+        "webgl",
+        "webgpu",
+        "threejs",
+        "performance",
+        "rendering",
+        "agent-skills"
+      ],
+      "skills": [
+        "./3d-web-scene-performance"
+      ],
+      "strict": false
+    }
+  ]
+}
