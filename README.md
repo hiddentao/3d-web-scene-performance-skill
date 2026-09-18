@@ -161,19 +161,9 @@ reads each one only when a task needs it.
 
 ## Contributing
 
-Issues and pull requests are welcome.
-
-The writing is the product here, so put new or reworded prose through the
-`humanizer` skill before you commit it. That covers the rules, the reference
-sections, this README, commit messages and pull request descriptions. It works
-from Wikipedia's
-["Signs of AI writing"](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing),
-which is worth reading whether or not your tool can run the skill.
-[AGENTS.md](AGENTS.md#editing-this-skill) says what it catches.
-
-Then run the validator. It checks the skill's frontmatter, the links between
-files, the ban on em and en dashes, and that there is exactly one `SKILL.md`.
-CI runs it too.
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers
+the two checks a change goes through: the `humanizer` skill over any prose you
+add, and the validator.
 
 ```bash
 node tools/validate.mjs
